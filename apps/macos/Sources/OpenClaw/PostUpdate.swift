@@ -1117,6 +1117,7 @@ extension PostUpdateController {
         generation: UInt64) async -> PostUpdateRuntimeVerification
     {
         self.markGatewayUpdateIncomplete(receipt: receipt)
+        let dispatchedReceipt = self.receipt ?? receipt
         self.model.phase = .updating
         self.model.message = String(localized: "Preparing the bundled Gateway runtime…")
         self.show()
@@ -1124,7 +1125,11 @@ extension PostUpdateController {
             let activation = try await GatewayProcessManager.shared.prepareBundledRuntimeAfterUpdate(
                 source: self.activationSource(source, generation: generation))
             switch activation {
-            case .ready: return .verified
+            case .ready:
+                // Bundled preparation joins Doctor and activation before settling this exact core checkpoint.
+                self.receipt = PostAppUpdateReceiptStore.completeCoreRepair(
+                    receipt: dispatchedReceipt, owner: .gateway)
+                return .verified
             case .deferred: return .deferred
             case let .failed(reason):
                 self.fail(

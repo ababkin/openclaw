@@ -293,6 +293,15 @@ Logging:
   launchd-marker workaround in
   [Gateway troubleshooting](/gateway/troubleshooting#macos-launchd-supervisor-loop-with-duplicate-gateway%2Fnode-launchagents).
 
+When a shell CLI and the running Gateway report the same version, they can still
+belong to different physical installations. Inspect `openclaw gateway status --deep`
+and `openclaw health` alongside the shell version to identify the service command
+and runtime. A terminal shim path such as `/opt/homebrew/bin/openclaw` alone does
+not identify its package owner. For app-owned recovery, choose **Retry** in the app;
+it uses the app's captured runtime and existing repair owners. Keep recovery
+preferences intact. Successful health verifies readiness; required repair work
+must also complete before the update receipt settles.
+
 ## App-hosted lifecycle and updates
 
 During local startup, readiness probes own the retry cadence and deadline.
@@ -307,6 +316,11 @@ unresponsive process group to exit.
 
 After an app update, including a rebuild with the same public version, the app
 seeds the new runtime and restarts its Gateway in the selected hosting mode.
+The app drains its producer and runs Doctor through the selected runtime before
+restarting the Gateway. Doctor owns core migrations and configured plugin host-link
+repair; the app owns service publication and activation. Required repair refusals
+keep recovery pending and restore the previous service when native custody permits.
+Conditional plugin warnings remain visible, with their pending repair records retained.
 It verifies health before removing old builds. A paused Gateway stays paused.
 Seeded installations never run npm self-update; update OpenClaw.app to update
 their Gateway. A paused legacy app-managed Node installation keeps background-service

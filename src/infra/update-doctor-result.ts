@@ -8,6 +8,7 @@ import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { z } from "zod";
 import { ConfigMutationConflictError } from "../config/mutation-conflict.js";
 import { hasCommandProcessCleanupError } from "../process/exec-result.js";
+import { defaultRuntime } from "../runtime.js";
 import { collectNestedErrorCandidates } from "./error-graph-internal.js";
 import { formatErrorMessage } from "./errors.js";
 import {
@@ -459,17 +460,21 @@ export async function writeUpdatePostInstallDoctorResult(params: {
   resultPath: string;
   result: UpdatePostInstallDoctorResult;
 }): Promise<void> {
+  const result = normalizeUpdatePostInstallDoctorResult(params.result);
+  if (params.resultPath === "-") {
+    // Native update owners consume the final classified result after the child settles.
+    defaultRuntime.writeStdout(
+      `${UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH_ENV}=${JSON.stringify(result)}`,
+    );
+    return;
+  }
   const resultPath = resolveSafeUpdatePostInstallDoctorResultPath(params.resultPath);
   // Advisory details can contain config-derived IDs; pre-existing paths must fail closed.
-  await fs.writeFile(
-    resultPath,
-    `${JSON.stringify(normalizeUpdatePostInstallDoctorResult(params.result))}\n`,
-    {
-      encoding: "utf8",
-      mode: 0o600,
-      flag: "wx",
-    },
-  );
+  await fs.writeFile(resultPath, `${JSON.stringify(result)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+    flag: "wx",
+  });
 }
 
 export async function consumeUpdatePostInstallDoctorResult(

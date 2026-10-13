@@ -161,6 +161,59 @@ extension GatewayProcessManager {
         }
     }
 
+    func repairPreparedBundledRuntime(
+        runtime: BundledRuntime,
+        source: ActivationSource,
+        expectedService: ManagedNodeGatewayMigration.ServiceCustody) async throws -> BundledRuntimeUpdateResult
+    {
+        let change = HostingChange(manager: self, service: expectedService)
+        change.runtime = runtime
+        defer {
+            self.finishHostingRecoveryActivation(
+                change.recoveryActivation,
+                generation: change.generation,
+                healthy: change.recoveryHealthy,
+                failure: change.recoveryFailure)
+        }
+        do {
+            try await Self.changeHosting(operations: .init(
+                prepare: { try await self.checkHostingChange(change, requiresActive: true) },
+                isAuthorized: { !self.isTerminating && self.desiredActive && !AppStateStore.shared.isPaused },
+                replace: { admit in
+                    try await self.stopHostingChange(change, admission: admit)
+                    let output = try await CLIInstaller.repairBundledGateway(
+                        runtime: runtime,
+                        environment: self.appHostedEnvironment(runtime: runtime),
+                        expectedServiceAuthority: change.expectedService.serviceAuthority(),
+                        checkCurrent: { try await self.checkHostingChange(change, requiresActive: true) },
+                        statusHandler: { self.appendLog("[gateway] \($0)\n") })
+                    if !output.isEmpty { self.appendLog("[gateway] recovery diagnostics: \(output.suffix(4000))\n") }
+                    try await self.startHostingChange(change, hosting: change.previous, restoring: false)
+                    return true
+                },
+                recover: {
+                    try await self.checkHostingChange(change)
+                    change.recoveryActivation = try self.prepareHostingRecoveryActivation(
+                        generation: change.generation, restoring: change.previous)
+                    try await self.stopHostingChange(change)
+                    if change.previous == .service { self.retainedServiceCLI = change.previousCLI }
+                    try await self.startHostingChange(change, hosting: change.previous, restoring: true)
+                },
+                verifyHealth: {
+                    try await self.verifyHostingChange(change)
+                    if change.recoveryActivation != nil { change.recoveryHealthy = true }
+                }))
+        } catch {
+            change.recoveryFailure = error.localizedDescription
+            throw error
+        }
+        do { try await BundledRuntime.garbageCollectAfterHealthy() } catch {
+            self.appendLog("[gateway] old runtime cleanup deferred: \(error.localizedDescription)\n")
+        }
+        try await self.checkHostingChange(change, requiresActive: true)
+        return .init(activation: .ready, generation: change.generation, source: source)
+    }
+
     private static func hostingServiceCustody() async throws -> ManagedNodeGatewayMigration.ServiceCustody {
         let custody = try await ManagedNodeGatewayMigration.captureServiceCustody(requireService: false)
         guard custody.definition.plist != nil || custody.runtimePin == nil else {
