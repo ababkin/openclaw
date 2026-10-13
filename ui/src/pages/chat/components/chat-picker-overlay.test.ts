@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { settleTooltip, tooltipSurface } from "../../../components/tooltip.test-support.ts";
+import { closeChatPaneDetails } from "../chat-pane-shared.ts";
 import {
   bindChatPickerOverlay,
   installChatComposerPickerDismissal,
@@ -86,10 +87,24 @@ describe("chat picker overlay", () => {
     const composer = document.createElement("div");
     composer.className = "agent-chat__input";
     const picker = document.createElement("details");
+    picker.className = "chat-controls__inline-select";
     picker.innerHTML =
       '<summary>Model</summary><div data-anchored-overlay popover="manual"><input data-chat-model-search></div>';
     composer.append(picker);
     document.body.append(composer);
+    const dismissLegacyDetails = (event: KeyboardEvent) => {
+      if (
+        !event.defaultPrevented &&
+        !event.isComposing &&
+        event.keyCode !== 229 &&
+        event.key === "Escape" &&
+        closeChatPaneDetails(composer)
+      ) {
+        event.preventDefault();
+      }
+    };
+    document.addEventListener("keydown", dismissLegacyDetails, true);
+    onTestFinished(() => document.removeEventListener("keydown", dismissLegacyDetails, true));
     onTestFinished(installChatComposerPickerDismissal(document));
     onTestFinished(bindChatPickerOverlay(picker));
     picker.open = true;
