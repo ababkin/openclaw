@@ -25,8 +25,14 @@ export type SessionEntryMaintenanceAgeFact = {
 type SessionEntryMaintenanceAgeCapture = { fact?: SessionEntryMaintenanceAgeFact };
 type MaintenanceActivity = Pick<
   SessionEntry,
-  "updatedAt" | "lastActivityAt" | "lastInteractionAt" | "sessionStartedAt" | "archivedAt"
->;
+  | "updatedAt"
+  | "lastActivityAt"
+  | "lastInteractionAt"
+  | "sessionStartedAt"
+  | "archivedAt"
+  | "sessionId"
+  | "parentSessionKey"
+> & { preserved?: boolean };
 export type SessionEntryMaintenanceAgeChange = {
   sessionKey: string;
   entry: MaintenanceActivity;
@@ -40,19 +46,31 @@ const changeObservers = new Map<
 export function captureSessionEntryMaintenanceAgeChange(
   change: SessionEntryMaintenanceAgeChange,
 ): SessionEntryMaintenanceAgeChange {
-  const pick = ({
-    updatedAt,
-    lastActivityAt,
-    lastInteractionAt,
-    sessionStartedAt,
-    archivedAt,
-  }: MaintenanceActivity) => ({
-    updatedAt,
-    lastActivityAt,
-    lastInteractionAt,
-    sessionStartedAt,
-    archivedAt,
-  });
+  const pick = (entry: MaintenanceActivity) => {
+    const {
+      updatedAt,
+      lastActivityAt,
+      lastInteractionAt,
+      sessionStartedAt,
+      archivedAt,
+      sessionId,
+      parentSessionKey,
+    } = entry;
+    return {
+      updatedAt,
+      lastActivityAt,
+      lastInteractionAt,
+      sessionStartedAt,
+      archivedAt,
+      sessionId,
+      parentSessionKey,
+      preserved: shouldPreserveMaintenanceEntry({
+        key: change.sessionKey,
+        entry,
+        preserveRecentMs: null,
+      }),
+    };
+  };
   return {
     sessionKey: change.sessionKey,
     entry: pick(change.entry),
@@ -144,10 +162,10 @@ export function advanceSessionEntryMaintenanceAgeFact(
   db: DatabaseSync,
   update: SessionEntryMaintenanceAgeChange,
 ): void {
+  const change = captureSessionEntryMaintenanceAgeChange(update);
   if (changeObservers.size) {
     const identity = findOpenClawAgentDatabaseIdentity({ db })?.identity;
     if (identity !== undefined && changeObservers.has(identity)) {
-      const change = captureSessionEntryMaintenanceAgeChange(update);
       const publish = () => publishSessionEntryMaintenanceAgeChanges(identity, [change]);
       if (
         !deferSqlitePostCommitPublication(sqlPublicationAnchor(db), publish) &&
@@ -157,7 +175,7 @@ export function advanceSessionEntryMaintenanceAgeFact(
       }
     }
   }
-  applySessionEntryMaintenanceAgeChange(db, update);
+  applySessionEntryMaintenanceAgeChange(db, change);
 }
 
 export function applySessionEntryMaintenanceAgeChange(
@@ -188,7 +206,22 @@ export function updateSessionEntryMaintenanceAgeFact(
     };
   }
   const { entry, previousEntry } = update;
-  if (previousEntry && !isMonotoneSessionEntryMaintenanceAgeChange(update)) {
+  if (
+    previousEntry &&
+    (!isMonotoneSessionEntryMaintenanceAgeChange(update) ||
+      previousEntry.sessionId !== entry.sessionId ||
+      previousEntry.parentSessionKey !== entry.parentSessionKey ||
+      ((previousEntry.preserved ??
+        shouldPreserveMaintenanceEntry({
+          key: update.sessionKey,
+          entry: previousEntry,
+          preserveRecentMs: null,
+        })) &&
+        !(
+          entry.preserved ??
+          shouldPreserveMaintenanceEntry({ key: update.sessionKey, entry, preserveRecentMs: null })
+        )))
+  ) {
     // Exact replacement/lifecycle writers also own backdates and archive restores.
     return undefined;
   }
