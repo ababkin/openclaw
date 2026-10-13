@@ -168,6 +168,9 @@ extension GatewayProcessManager {
     {
         let change = HostingChange(manager: self, service: expectedService)
         change.runtime = runtime
+        let environment = try self.appHostedEnvironment(
+            runtime: runtime,
+            capturedServiceEnvironment: change.previous == .service ? change.previousCLI?.environment ?? [:] : [:])
         defer {
             self.finishHostingRecoveryActivation(
                 change.recoveryActivation,
@@ -183,12 +186,13 @@ extension GatewayProcessManager {
                     try await self.stopHostingChange(change, admission: admit)
                     let output = try await CLIInstaller.repairBundledGateway(
                         runtime: runtime,
-                        environment: self.appHostedEnvironment(runtime: runtime),
+                        environment: environment,
                         expectedServiceAuthority: change.expectedService.serviceAuthority(),
                         checkCurrent: { try await self.checkHostingChange(change, requiresActive: true) },
                         statusHandler: { self.appendLog("[gateway] \($0)\n") })
                     if !output.isEmpty { self.appendLog("[gateway] recovery diagnostics: \(output.suffix(4000))\n") }
-                    try await self.startHostingChange(change, hosting: change.previous, restoring: false)
+                    try await self.startHostingChange(
+                        change, hosting: change.previous, restoring: false, runtimeEnvironment: environment)
                     return true
                 },
                 recover: {
@@ -266,7 +270,12 @@ extension GatewayProcessManager {
         else { throw GatewayHostingError(message: "The previous Gateway service was not removed.") }
     }
 
-    private func startHostingChange(_ change: HostingChange, hosting: GatewayHosting, restoring: Bool) async throws {
+    private func startHostingChange(
+        _ change: HostingChange,
+        hosting: GatewayHosting,
+        restoring: Bool,
+        runtimeEnvironment: [String: String]? = nil) async throws
+    {
         try await self.checkHostingChange(change, requiresActive: true)
         guard let runtime = change.runtime else { throw CancellationError() }
         if hosting == .app {
@@ -287,7 +296,8 @@ extension GatewayProcessManager {
             port: change.port,
             generation: change.generation,
             runtimeForUpdate: cli == nil ? selectedRuntime : nil,
-            runtimeEnvironment: cli == nil ? self.appHostedEnvironment(runtime: selectedRuntime) : nil,
+            runtimeEnvironment: cli == nil ? runtimeEnvironment ?? self
+                .appHostedEnvironment(runtime: selectedRuntime) : nil,
             serviceForRestoration: cli.map { ServiceRestoration(retained: $0, installer: runtime) },
             expectedServiceAuthority: change.expectedService.serviceAuthority(),
             mutationCheck: { try await self.checkHostingChange(change, requiresActive: true) })

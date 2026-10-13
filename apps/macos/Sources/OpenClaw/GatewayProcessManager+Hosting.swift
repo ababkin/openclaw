@@ -260,7 +260,10 @@ extension GatewayProcessManager {
         self.hostingRevision &+= 1
     }
 
-    func appHostedEnvironment(runtime: BundledRuntime) throws -> [String: String] {
+    func appHostedEnvironment(
+        runtime: BundledRuntime,
+        capturedServiceEnvironment: [String: String] = [:]) throws -> [String: String]
+    {
         let profile = AppProfile.current
         let retained = try GatewayLaunchAgentManager.retainedServiceEnvironment(
             stateDirectory: profile.stateDirectoryURL(), profile: profile)
@@ -269,7 +272,8 @@ extension GatewayProcessManager {
             profile: profile,
             processEnvironment: ProcessInfo.processInfo.environment,
             retainedEnvironment: retained,
-            searchPaths: CommandResolver.preferredPaths())
+            searchPaths: CommandResolver.preferredPaths(),
+            capturedServiceEnvironment: capturedServiceEnvironment)
     }
 
     static func appHostedEnvironment(
@@ -277,9 +281,11 @@ extension GatewayProcessManager {
         profile: AppProfile,
         processEnvironment: [String: String],
         retainedEnvironment: [String: String],
-        searchPaths: [String]) -> [String: String]
+        searchPaths: [String],
+        capturedServiceEnvironment: [String: String] = [:]) -> [String: String]
     {
         var environment = processEnvironment.merging(retainedEnvironment) { _, retained in retained }
+            .merging(capturedServiceEnvironment) { _, captured in captured }
         let servicePaths = environment["PATH"]?.split(separator: ":").map(String.init) ?? []
         environment.merge(runtime.environment) { _, runtimeValue in runtimeValue }
         var seen = Set<String>()

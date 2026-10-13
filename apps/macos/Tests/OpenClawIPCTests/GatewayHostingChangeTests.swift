@@ -55,6 +55,31 @@ struct GatewayHostingChangeTests {
         }
     }
 
+    @Test func `bundled repair retains inline service settings with selected runtime facts`() {
+        let runtime = BundledRuntime(root: URL(fileURLWithPath: "/fixture/new-runtime"))
+        let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "repair-proof"])
+        let environment = GatewayProcessManager.appHostedEnvironment(
+            runtime: runtime, profile: profile,
+            processEnvironment: ["FIXTURE_SETTING": "process-value"],
+            retainedEnvironment: ["FIXTURE_SETTING": "retained-value"],
+            searchPaths: ["/usr/bin"],
+            capturedServiceEnvironment: [
+                "FIXTURE_SETTING": "service-value",
+                "FIXTURE_API_KEY": "synthetic-service-key",
+                "HTTPS_PROXY": "http://fixture.invalid:8080",
+                "PATH": "/fixture/service/bin",
+                "OPENCLAW_SQLITE_LIBRARY": "/fixture/old/libsqlite3.dylib",
+                "OPENCLAW_STATE_DIR": "/fixture/old-state",
+            ])
+        #expect(environment["FIXTURE_SETTING"] == "service-value")
+        #expect(environment["FIXTURE_API_KEY"] == "synthetic-service-key")
+        #expect(environment["HTTPS_PROXY"] == "http://fixture.invalid:8080")
+        #expect(environment["PATH"]?.contains("/fixture/service/bin") == true)
+        #expect(environment["OPENCLAW_SQLITE_LIBRARY"] == runtime.sqliteLibrary.path)
+        #expect(environment["OPENCLAW_STATE_DIR"] == profile.stateDirectoryURL().path)
+        #expect(environment["OPENCLAW_CONFIG_PATH"] == profile.stateDirectoryURL().appendingPathComponent("openclaw.json").path)
+    }
+
     @Test(arguments: [true, false])
     func `retired Dashboard authority prevents the first hosting effect`(duringPreparation: Bool) async {
         let fixture = Fixture()
