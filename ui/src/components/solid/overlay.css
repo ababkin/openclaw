@@ -224,7 +224,7 @@
     color var(--control-ui-transition-fast) ease;
 }
 
-.oc-menu-item[href] {
+a.oc-menu-item[href] {
   cursor: pointer;
 }
 

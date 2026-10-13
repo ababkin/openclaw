@@ -144,13 +144,9 @@ export function Menu(props: BranchProps): JSX.Element {
     }
   };
   onSettled(() => overlay.bindSurface(surface));
-  const binding = useMenuMachine(
-    overlay,
-    direction,
-    activate,
-    identity.binding?.service,
-    { pointerFocus: () => props.pointerFocus ?? "menu" },
-  );
+  const binding = useMenuMachine(overlay, direction, activate, identity.binding?.service, {
+    pointerFocus: () => props.pointerFocus ?? "menu",
+  });
   const [opened, setOpened] = createSignal(false);
   let openPublication = 0;
   const syncOpen = (open: boolean) => {

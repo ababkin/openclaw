@@ -218,6 +218,8 @@ export function useMenuMachine(
     loopFocus: true,
     closeOnSelect: false,
     "aria-label": overlay.id,
+    // Keyboard links use the same cancelable selection and browser-intent path as clicks.
+    navigate: ({ node }) => node.click(),
     onOpenChange({ open }) {
       const restore = !open && containsComposed(overlay.surface, service.scope.getActiveElement());
       // Native sibling dismissal must not leave focus behind in the retired branch.

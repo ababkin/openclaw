@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { expect as browserExpect, type CDPSession } from "playwright";
+import type { CDPSession } from "playwright";
+import { expect as browserExpect } from "playwright/test";
 import { expect, it } from "vitest";
 import {
   captureUiProof,
