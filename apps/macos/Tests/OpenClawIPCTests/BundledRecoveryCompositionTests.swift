@@ -1,0 +1,217 @@
+import AppKit
+import Foundation
+import Testing
+@testable import OpenClaw
+@testable import OpenClawKit
+
+/// This process-hosted composition runs only in the disposable, staged .app lane.
+/// The ordinary SwiftPM suite retains its cheaper owner-level controls.
+@Suite(.testWaitLimit)
+@MainActor
+struct BundledRecoveryCompositionTests {
+    private nonisolated static var isAppHost: Bool {
+        Bundle.main.bundleIdentifier == "ai.openclaw.mac.recovery-fixture" &&
+            BundledRuntime.isBundledApp && AppProfile.current.isActive
+    }
+
+    private let pluginID = "scott-recovery-composition"
+
+    @Test(.enabled(if: Self.isAppHost))
+    func `ordinary retry`() async throws {
+        try await AppKitTestSupport.startApplication()
+        let state = AppProfile.current.stateDirectoryURL()
+        #expect(state == OpenClawPaths.stateDirURL)
+        let runtime = try await BundledRuntime.seed()
+        let version = try #require(GatewayEnvironment.appVersionString())
+        let config: [String: Any] = [
+            "gateway": [
+                "mode": "local", "port": GatewayEnvironment.gatewayPort(),
+                "auth": ["mode": "token", "token": "synthetic-composition-token"],
+                "controlUi": ["enabled": false],
+            ],
+            "agents": [
+                "ownership": "explicit",
+                "defaults": ["systemAgent": ["agentId": "main"]],
+                "entries": ["main": ["workspace": state.appendingPathComponent("workspace").path]],
+            ],
+            "plugins": ["allow": [self.pluginID], "slots": ["memory": "none"]],
+        ]
+        try JSONSerialization.data(withJSONObject: config).write(to: OpenClawPaths.configURL)
+        try await self.installPlugin(runtime: runtime, state: state)
+        AppDefaults.standard.set(GatewayHosting.service.rawValue, forKey: GatewayHosting.defaultsKey)
+        AppStateStore.shared.connectionMode = .local
+        AppStateStore.shared.onboardingSeen = true
+        AppStateStore.shared.isPaused = false
+        let manager = GatewayProcessManager.shared
+        manager.setActive(true, source: .request)
+        await manager.waitForStartupAttempt()
+        #expect(try await GatewayConnection.shared.healthOK())
+        let command = try #require(GatewayLaunchAgentManager.launchdProgramArguments())
+        #expect(command.contains("--no-install"))
+        let inspected = try #require(GatewayLaunchAgentManager.installedServiceCLI())
+        #expect(inspected.prefix.first == runtime.bun.path)
+
+        // Same-version shell and app packages must not be interchangeable host-link owners.
+        let wrongRoot = state.appendingPathComponent("other-install")
+        try FileManager.default.createDirectory(at: wrongRoot, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: [
+            "name": "openclaw", "version": version, "type": "module",
+            "exports": ["./plugin-sdk/plugin-entry": "./missing-sdk.js"],
+        ]).write(to: wrongRoot.appendingPathComponent("package.json"))
+        let peer = state.appendingPathComponent("extensions/\(self.pluginID)/node_modules/openclaw")
+        try FileManager.default.removeItem(at: peer)
+        try FileManager.default.createSymbolicLink(at: peer, withDestinationURL: wrongRoot)
+        let probe = state.appendingPathComponent("extensions/\(self.pluginID)/peer-health.mjs")
+        let before = await ShellExecutor.runDetailed(
+            command: [runtime.bun.path, probe.path], cwd: nil, env: runtime.environment, timeout: 30)
+        #expect(!before.success)
+
+        AppStateStore.shared.isPaused = true
+        manager.stop()
+        await manager.waitForStartupAttempt()
+        let agent = state.appendingPathComponent("agents/main/agent/openclaw-agent.sqlite")
+        let artifacts = [agent, URL(fileURLWithPath: agent.path + "-wal"), URL(fileURLWithPath: agent.path + "-shm")]
+        let retained = artifacts.filter { FileManager.default.fileExists(atPath: $0.path) }
+        for artifact in retained {
+            try FileManager.default.moveItem(at: artifact, to: artifact.appendingPathExtension("composition-original"))
+        }
+        try FileManager.default.createDirectory(
+            at: agent.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Newer schemas are a required refusal, unlike isolatable secondary-agent diagnostics.
+        let future = await ShellExecutor.runDetailed(
+            command: ["/usr/bin/sqlite3", agent.path, "PRAGMA user_version=2147483646;"],
+            cwd: nil,
+            env: [:],
+            timeout: 30)
+        #expect(future.success)
+        let futureBytes = try Data(contentsOf: agent)
+
+        let receipt = PostAppUpdateReceipt(
+            fromVersion: "2026.10.1",
+            toVersion: version,
+            recordedAt: Date(),
+            notificationInFlight: true,
+            runtimeBuildID: Bundle.main.infoDictionary?["OpenClawRuntimeBuildID"] as? String)
+        let checkpoint = PostAppUpdateReceiptStore.recordCoreUpdateDispatch(receipt: receipt, owner: .gateway)
+        #expect(!checkpoint.setupRecovery && checkpoint.coreUpdatePending)
+        #expect(PostUpdateController.shared.startIfNeeded())
+        let window = try await self.updateWindow()
+        _ = try await AppKitTestSupport.waitForAccessibilityElement(
+            in: window, description: "paused recovery", matching: { elements in
+                elements.first { AppKitTestSupport.accessibilityName(of: $0)?.contains("Resume OpenClaw") == true }
+            })
+        #expect(PostAppUpdateReceiptStore.pending(currentVersion: version)?.coreUpdatePending == true)
+
+        AppStateStore.shared.isPaused = false
+        PostUpdateController.shared.retry()
+        _ = try await AppKitTestSupport.waitForAccessibilityElement(
+            in: window, description: "newer-schema Doctor diagnostic", matching: { elements in
+                elements.first { AppKitTestSupport.accessibilityName(of: $0)?.contains("2147483646") == true }
+            })
+        _ = try await AppKitTestSupport.waitForAccessibilityElement(
+            in: window, description: "required newer-schema refusal", matching: { elements in
+                elements.first { $0.accessibilityRole?() == .button && $0.accessibilityLabel?() == "Retry" }
+            })
+        #expect(PostAppUpdateReceiptStore.pending(currentVersion: version)?.coreUpdatePending == true)
+        #expect(try Data(contentsOf: agent) == futureBytes)
+        try FileManager.default.removeItem(at: agent)
+        for artifact in retained {
+            try FileManager.default.moveItem(at: artifact.appendingPathExtension("composition-original"), to: artifact)
+        }
+
+        PostUpdateController.shared.retry()
+        let receiptChanged = AsyncTestSignal()
+        let observation = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main,
+            using: { _ in receiptChanged.notify() })
+        defer { NotificationCenter.default.removeObserver(observation) }
+        try await receiptChanged.wait("ordinary recovery receipt completion") {
+            AppDefaults.standard.data(forKey: postAppUpdateReceiptKey) == nil
+        }
+        #expect(try await GatewayConnection.shared.healthOK())
+        let after = await ShellExecutor.runDetailed(
+            command: [runtime.bun.path, probe.path], cwd: nil, env: runtime.environment, timeout: 30)
+        #expect(after.success)
+        #expect(after.stdout.contains(runtime.packageRoot.path))
+        let health = try await GatewayConnection.shared.request(method: "health", params: nil)
+        let healthObject = try #require(try JSONSerialization.jsonObject(with: health) as? [String: Any])
+        #expect(healthObject["ok"] as? Bool == true)
+        let plugins = try #require(healthObject["plugins"] as? [String: Any])
+        #expect((plugins["errors"] as? [Any])?.isEmpty == true)
+        #expect((plugins["loaded"] as? [String])?.contains(self.pluginID) == true)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: peer.path) == runtime.packageRoot.path)
+        #expect(AppDefaults.standard.synchronize())
+        PostUpdateController.shared.close()
+        await GatewayConnection.shared.shutdown()
+        // The launcher retains this exact named service until the fresh relaunch host joins it.
+    }
+
+    @Test(.enabled(if: Self.isAppHost))
+    func relaunch() async throws {
+        try await AppKitTestSupport.startApplication()
+        #expect(AppDefaults.standard.data(forKey: postAppUpdateReceiptKey) == nil)
+        let manager = GatewayProcessManager.shared
+        AppStateStore.shared.connectionMode = .local
+        manager.setActive(true, source: .request)
+        #expect(PostUpdateController.shared.startIfNeeded())
+        await manager.waitForStartupAttempt()
+        #expect(try await GatewayConnection.shared.healthOK())
+        #expect(AppDefaults.standard.data(forKey: postAppUpdateReceiptKey) == nil)
+        manager.stop()
+        await manager.waitForStartupAttempt()
+        await GatewayConnection.shared.shutdown()
+        #expect(GatewayLaunchAgentManager.launchdProgramArguments()?.isEmpty == true)
+    }
+
+    private func updateWindow() async throws -> NSWindow {
+        var window: NSWindow?
+        try await TestWait.state("ordinary recovery window") {
+            window = NSApp.windows.first { $0.title == "OpenClaw updated" }
+            return window != nil
+        }
+        return try #require(window)
+    }
+
+    private func installPlugin(runtime: BundledRuntime, state: URL) async throws {
+        let package = state.appendingPathComponent("fixture-source/package")
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: [
+            "name": self.pluginID, "version": "1.0.0", "type": "module",
+            "peerDependencies": ["openclaw": "*"], "openclaw": ["extensions": ["./index.js"]],
+        ]).write(to: package.appendingPathComponent("package.json"))
+        try JSONSerialization.data(withJSONObject: [
+            "id": self.pluginID, "contracts": ["tools": ["composition_probe"]],
+            "configSchema": ["type": "object", "properties": [String: Any](), "additionalProperties": false],
+        ]).write(to: package.appendingPathComponent("openclaw.plugin.json"))
+        try """
+        import { createRequire } from 'node:module';
+        const require = createRequire(import.meta.url);
+        require('openclaw/plugin-sdk/plugin-entry');
+        export default { id: '\(self.pluginID)', register(api) {
+          api.registerTool({name:'composition_probe',label:'Composition proof',description:'Synthetic recovery proof',
+            parameters:{type:'object',properties:{}},execute:async()=>({content:[{type:'text',text:'ready'}]})});
+        }};
+        """.write(to: package.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
+        try """
+        import { createRequire } from 'node:module';
+        const require = createRequire(import.meta.url);
+        require('openclaw/plugin-sdk/plugin-entry');
+        console.log(require.resolve('openclaw/plugin-sdk/plugin-entry'));
+        """.write(to: package.appendingPathComponent("peer-health.mjs"), atomically: true, encoding: .utf8)
+        let archive = state.appendingPathComponent("fixture-plugin.tgz")
+        let packed = await ShellExecutor.runDetailed(
+            command: ["/usr/bin/tar", "-czf", archive.path, "-C", package.deletingLastPathComponent().path, "package"],
+            cwd: nil,
+            env: [:],
+            timeout: 30)
+        #expect(packed.success)
+        let installed = await ShellExecutor.runDetailed(
+            command: runtime.cliCommand + ["plugins", "install", archive.path, "--force", "--accept-capabilities"],
+            cwd: runtime.packageRoot.path,
+            env: runtime.environment,
+            timeout: CLIInstaller.managedUpdateTimeout)
+        #expect(installed.success)
+    }
+}

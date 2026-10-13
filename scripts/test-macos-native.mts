@@ -3,8 +3,87 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { root as openCaptureRoot } from "@openclaw/fs-safe/root";
+import { readProcessIdentity } from "@openclaw/proc-safe/identity";
 import { runWithFailedTrailer } from "./lib/failed-trailer.mts";
-import { runManagedCommand } from "./lib/managed-child-process.mts";
+import { runManagedCommand, waitForManagedProcessGroupExit } from "./lib/managed-child-process.mts";
+
+function validateSwiftTestingCompletion(eventStreamPath: string, expectedFilter?: string): void {
+  const selected = expectedFilter ? new RegExp(expectedFilter) : undefined;
+  const functions = new Set<string>();
+  const started = new Set<string>();
+  const completed = new Set<string>();
+  let phase: "pending" | "running" | "ended" = "pending";
+  const lines = fs.readFileSync(eventStreamPath, "utf8").split("\n");
+  if (lines.at(-1) === "") {
+    lines.pop();
+  }
+  for (const line of lines) {
+    const record: unknown = JSON.parse(line);
+    if (typeof record !== "object" || record === null || !("kind" in record)) {
+      throw new Error("Invalid Swift Testing event record");
+    }
+    // Swift Testing permits new record and event kinds without a schema change.
+    if (record.kind !== "event" && record.kind !== "test") {
+      continue;
+    }
+    if (!("version" in record) || record.version !== "6.3.0") {
+      throw new Error("Expected Swift Testing event schema 6.3.0");
+    }
+    if (record.kind === "test") {
+      if (
+        "payload" in record &&
+        typeof record.payload === "object" &&
+        record.payload !== null &&
+        "kind" in record.payload &&
+        record.payload.kind === "function" &&
+        "id" in record.payload &&
+        typeof record.payload.id === "string" &&
+        selected?.test(record.payload.id)
+      ) {
+        functions.add(record.payload.id);
+      }
+      continue;
+    }
+    if (
+      !("payload" in record) ||
+      typeof record.payload !== "object" ||
+      record.payload === null ||
+      !("kind" in record.payload) ||
+      typeof record.payload.kind !== "string"
+    ) {
+      throw new Error("Invalid Swift Testing event payload");
+    }
+    if (
+      "testID" in record.payload &&
+      typeof record.payload.testID === "string" &&
+      functions.has(record.payload.testID)
+    ) {
+      if (record.payload.kind === "testStarted") {
+        started.add(record.payload.testID);
+      }
+      if (record.payload.kind === "testEnded" && started.has(record.payload.testID)) {
+        completed.add(record.payload.testID);
+      }
+      if (record.payload.kind === "testSkipped" || record.payload.kind === "testCancelled") {
+        started.delete(record.payload.testID);
+      }
+    }
+    if (record.payload.kind === "runStarted") {
+      if (phase !== "pending") {
+        throw new Error("Unexpected Swift Testing runStarted");
+      }
+      phase = "running";
+    } else if (record.payload.kind === "runEnded") {
+      if (phase !== "running") {
+        throw new Error("Unexpected Swift Testing runEnded");
+      }
+      phase = "ended";
+    }
+  }
+  if (phase !== "ended" || (selected && completed.size === 0)) {
+    throw new Error("Swift Testing did not finish its run");
+  }
+}
 
 await runWithFailedTrailer("macos-native", async () => {
   const env = process.env;
@@ -22,10 +101,35 @@ await runWithFailedTrailer("macos-native", async () => {
     );
   }
   const [profileMode, ...args] = process.argv.slice(2);
-  if (profileMode !== "default" && profileMode !== "named") {
+  const appHost = profileMode === "app-host";
+  let appHostConfiguration:
+    | {
+        executable: string;
+        testBundle: string;
+        filters: [string, string];
+      }
+    | undefined;
+  if (appHost) {
+    const [appPath, testBundle, retryFilter, relaunchFilter] = args;
+    if (args.length !== 4 || !appPath || !testBundle || !retryFilter || !relaunchFilter) {
+      throw new Error(
+        "App-host mode requires a staged app, built test bundle, Retry filter, and relaunch filter.",
+      );
+    }
+    const app = fs.realpathSync(appPath);
+    if (path.extname(app) !== ".app" || !fs.statSync(testBundle).isFile()) {
+      throw new Error("App-host mode requires an actual .app and compiled test executable.");
+    }
+    appHostConfiguration = {
+      executable: path.join(app, "Contents/MacOS/OpenClawRecoveryTestHost"),
+      testBundle,
+      filters: [retryFilter, relaunchFilter],
+    };
+  }
+  if (profileMode !== "default" && profileMode !== "named" && !appHost) {
     throw new Error("Select default or named profile semantics before the Swift test arguments.");
   }
-  if (!args.includes("--skip-build")) {
+  if (!appHost && !args.includes("--skip-build")) {
     throw new Error(
       "Build tests first with swift build --build-tests; this launcher requires --skip-build.",
     );
@@ -37,7 +141,8 @@ await runWithFailedTrailer("macos-native", async () => {
   let canRemove = true;
   try {
     const home = path.join(root, "home");
-    const state = path.join(root, "state");
+    const profile = profileMode === "named" || appHost ? `test-${randomUUID()}` : "default";
+    const state = appHost ? path.join(home, `.openclaw-${profile}`) : path.join(root, "state");
     const tmp = path.join(root, "tmp");
     const menuCaptures = path.join(root, "menu-captures");
     for (const dir of [home, state, tmp, menuCaptures]) {
@@ -79,7 +184,7 @@ await runWithFailedTrailer("macos-native", async () => {
       NSUnbufferedIO: "YES",
       // The full suite protects default-profile lifecycle behavior. Named-profile
       // construction is exercised separately; both use the disposable runner's account.
-      OPENCLAW_PROFILE: profileMode === "named" ? `test-${randomUUID()}` : "default",
+      OPENCLAW_PROFILE: profile,
       OPENCLAW_STATE_DIR: state,
       OPENCLAW_CONFIG_PATH: path.join(state, "openclaw.json"),
       OPENCLAW_TEST_MENU_CAPTURE_DIR: menuCaptures,
@@ -110,6 +215,32 @@ await runWithFailedTrailer("macos-native", async () => {
       canRemove = true;
       return code;
     };
+    const serviceTarget = `gui/${process.getuid?.()}/ai.openclaw.${profile}`;
+    const gatewayPids = new Set<number>();
+    const inspectService = async () => {
+      const output = path.join(root, "service-inspection.txt");
+      const fd = fs.openSync(output, "w", 0o600);
+      try {
+        canRemove = false;
+        const code = await runManagedCommand({
+          bin: "launchctl",
+          args: ["print", serviceTarget],
+          env: childEnv,
+          stdio: ["ignore", fd, fd],
+          requireProcessTreeExit: true,
+          timeoutMs: 30_000,
+        });
+        canRemove = true;
+        const text = fs.readFileSync(output, "utf8");
+        const pid = /^\tpid = ([0-9]+)$/mu.exec(text)?.[1];
+        if (code === 0 && pid) {
+          gatewayPids.add(Number(pid));
+        }
+        return { code, text };
+      } finally {
+        fs.closeSync(fd);
+      }
+    };
     // Empty test-only password prevents prompts; no automatic locking while the suite runs.
     // Only the user domain changes. Common/dynamic Keychains still require a disposable host.
     try {
@@ -127,14 +258,48 @@ await runWithFailedTrailer("macos-native", async () => {
         }
       }
       const eventStreamPath = path.join(root, "swift-testing-events.jsonl");
-      process.exitCode = await run("swift", [
-        "test",
-        ...args,
-        "--event-stream-output-path",
-        eventStreamPath,
-        "--event-stream-version",
-        "6.3",
-      ]);
+      if (appHostConfiguration) {
+        const diagnostics = fs.mkdtempSync(path.join(env.RUNNER_TEMP, "openclaw-recovery-events-"));
+        console.error(`[macos-native] App-host event artifacts: ${diagnostics}`);
+        if (env.GITHUB_OUTPUT) {
+          fs.appendFileSync(env.GITHUB_OUTPUT, `recovery-artifact-path=${diagnostics}\n`);
+        }
+        let phase = 0;
+        // Relaunch changes process-wide singletons while retaining this owned profile and state.
+        for (const filter of appHostConfiguration.filters) {
+          process.exitCode = await run(appHostConfiguration.executable, [
+            "--test-bundle-path",
+            appHostConfiguration.testBundle,
+            "--testing-library",
+            "swift-testing",
+            "--filter",
+            filter,
+            "--event-stream-output-path",
+            eventStreamPath,
+            "--event-stream-version",
+            "6.3",
+          ]);
+          // Preserve the real event stream even when a host fails or the next launch overwrites it.
+          if (fs.existsSync(eventStreamPath)) {
+            fs.copyFileSync(eventStreamPath, path.join(diagnostics, `phase-${phase}-events.jsonl`));
+          }
+          phase += 1;
+          if (process.exitCode !== 0) {
+            break;
+          }
+          validateSwiftTestingCompletion(eventStreamPath, filter);
+          await inspectService();
+        }
+      } else {
+        process.exitCode = await run("swift", [
+          "test",
+          ...args,
+          "--event-stream-output-path",
+          eventStreamPath,
+          "--event-stream-version",
+          "6.3",
+        ]);
+      }
       // Export synthetic images after every child/output closes and before resource cleanup.
       try {
         const exported = fs.mkdtempSync(
@@ -227,56 +392,31 @@ await runWithFailedTrailer("macos-native", async () => {
       }
       if (process.exitCode === 0) {
         try {
-          let phase: "pending" | "running" | "ended" = "pending";
-          const lines = fs.readFileSync(eventStreamPath, "utf8").split("\n");
-          if (lines.at(-1) === "") {
-            lines.pop();
-          }
-          for (const line of lines) {
-            const record: unknown = JSON.parse(line);
-            if (typeof record !== "object" || record === null || !("kind" in record)) {
-              throw new Error("Invalid Swift Testing event record");
-            }
-            // Swift Testing permits new record and event kinds without a schema change.
-            if (record.kind !== "event" && record.kind !== "test") {
-              continue;
-            }
-            if (!("version" in record) || record.version !== "6.3.0") {
-              throw new Error("Expected Swift Testing event schema 6.3.0");
-            }
-            if (record.kind !== "event") {
-              continue;
-            }
-            if (
-              !("payload" in record) ||
-              typeof record.payload !== "object" ||
-              record.payload === null ||
-              !("kind" in record.payload) ||
-              typeof record.payload.kind !== "string"
-            ) {
-              throw new Error("Invalid Swift Testing event payload");
-            }
-            if (record.payload.kind === "runStarted") {
-              if (phase !== "pending") {
-                throw new Error("Unexpected Swift Testing runStarted");
-              }
-              phase = "running";
-            } else if (record.payload.kind === "runEnded") {
-              if (phase !== "running") {
-                throw new Error("Unexpected Swift Testing runEnded");
-              }
-              phase = "ended";
-            }
-          }
-          if (phase !== "ended") {
-            throw new Error("Swift Testing did not finish its run");
-          }
+          validateSwiftTestingCompletion(eventStreamPath);
         } catch (error) {
           process.exitCode = 1;
           console.error("[macos-native] Swift exited 0 without valid test completion", error);
         }
       }
     } finally {
+      if (appHost && canRemove) {
+        await inspectService();
+        await run("launchctl", ["bootout", serviceTarget], 30_000);
+        const inspection = await inspectService();
+        let retired = inspection.code !== 0 && /could not find service/iu.test(inspection.text);
+        canRemove = false;
+        for (const pid of gatewayPids) {
+          const groupGone = await waitForManagedProcessGroupExit({ pid }, 30_000, {
+            errorPolicy: "indeterminate",
+          });
+          retired &&= groupGone && readProcessIdentity(pid) === null;
+        }
+        canRemove = retired;
+        if (!canRemove) {
+          process.exitCode ||= 1;
+          console.error(`[macos-native] test Gateway retirement is unverified: ${serviceTarget}`);
+        }
+      }
       // A completed failed create may leave a database. Never delete it until every child closed.
       if (canRemove && fs.existsSync(keychain)) {
         const cleanupCode = await run("security", ["delete-keychain", keychain], 30_000);
