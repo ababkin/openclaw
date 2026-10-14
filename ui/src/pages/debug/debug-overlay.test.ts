@@ -398,6 +398,9 @@ describe("DebugOverlay", () => {
     document.body.append(overlay);
     try {
       overlay.toggle();
+      await waitForSolid(() => {
+        expect(overlay.querySelector(".gateway-vital--disk")).not.toBeNull();
+      });
       await vi.advanceTimersByTimeAsync(10_000);
       await updateOverlayVitals(overlay);
       expect(overlay.querySelector<TestSparkline>(".gateway-vital--disk")?.samples).toHaveLength(2);
