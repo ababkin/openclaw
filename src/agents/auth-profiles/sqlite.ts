@@ -9,7 +9,8 @@ import { cloneEnvWithPlatformSemantics } from "../../config/config-env-vars.js";
 import { resolveStateDir } from "../../config/paths.js";
 import { sha256HexPrefixCore } from "../../infra/crypto-digest.js";
 import { resolveSqliteDatabaseFilePaths } from "../../infra/sqlite-files.js";
-import { deferSqlitePostCommitPublication } from "../../infra/sqlite-post-commit.js";
+import { stageSqliteTransactionState } from "../../infra/sqlite-post-commit.js";
+import type { DatabaseFileIdentity } from "../../infra/sqlite-worker-identity.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import {
   assertExistingAgentSchemaOwner,
@@ -31,17 +32,19 @@ import {
   prepareAuthProfileAuthorizationWrite,
   readAuthProfileAuthorizationLifetimes,
 } from "./authorization-lifetime.js";
-import { publishAuthProfileAuthorization } from "./authorization-observation.js";
+import {
+  fenceAuthProfileAuthorizationWrite,
+  publishAuthProfileAuthorization,
+} from "./authorization-observation.js";
 import { AUTH_STORE_VERSION } from "./constants.js";
 import { resolveSharedAuthStoreOwnership, resolveSharedAuthStorePath } from "./path-resolve.js";
 import { prepareFreshSharedAuthStoreWriteAsync } from "./shared-store-bootstrap-async.js";
 import { prepareFreshSharedAuthStoreWrite } from "./shared-store-bootstrap.js";
+import { writeAuthProfileJsonCell, deleteAuthProfileJsonCell } from "./sqlite-json-write.js";
 import {
   inspectAuthProfileJsonCell,
   inspectAgentAuthProfileJsonCellReadOnly,
   readAuthProfileJsonCellText,
-  writeAuthProfileJsonCell,
-  deleteAuthProfileJsonCell,
 } from "./sqlite-json.js";
 import {
   acquireAuthProfileReadDatabase,
@@ -372,16 +375,45 @@ function mutateAuthProfileCell(
         next = prepareAuthProfileAuthorizationWrite(raw, next);
       }
     }
-    if (remove) {
-      deleteAuthProfileJsonCell(owner.db, target, kind);
-    } else {
-      writeAuthProfileJsonCell(owner.db, target, kind, next);
+    let settleAuthorization: ReturnType<typeof fenceAuthProfileAuthorizationWrite> | undefined;
+    const fenceAuthorization = () => {
+      settleAuthorization ??= fenceAuthProfileAuthorizationWrite(owner.path);
+    };
+    // Autocommit has no later prepareCommit phase; fence before its native effect.
+    if (target === "store" && !owner.db.isTransaction) {
+      fenceAuthorization();
     }
-    if (target === "store") {
-      const publish = () => publishAuthProfileAuthorization(owner.path, remove ? undefined : next);
-      if (!deferSqlitePostCommitPublication(owner.db, publish)) {
-        publish();
+    try {
+      if (remove) {
+        deleteAuthProfileJsonCell(owner.db, target, kind);
+      } else {
+        writeAuthProfileJsonCell(owner.db, target, kind, next);
       }
+      if (target === "store") {
+        const publish = () => {
+          publishAuthProfileAuthorization(owner.path, remove ? undefined : next);
+          settleAuthorization?.(true);
+        };
+        // The supplied connection retains its outer transaction/savepoint owner. Unknown
+        // settlement must invalidate facts even when post-commit notifications are discarded.
+        if (
+          !stageSqliteTransactionState(owner.db, {
+            stage() {},
+            prepareCommit: fenceAuthorization,
+            commit: publish,
+            rollback: () => settleAuthorization?.(true),
+            invalidate() {
+              fenceAuthorization();
+              settleAuthorization?.(false);
+            },
+          })
+        ) {
+          publish();
+        }
+      }
+    } catch (error) {
+      settleAuthorization?.(false);
+      throw error;
     }
   };
   if (database) {
@@ -396,6 +428,14 @@ type AuthProfileWriteOptions = {
   sharedStoreWrite?: boolean;
   stateDir?: string;
   assertEnvironment?: (env: NodeJS.ProcessEnv) => void;
+  existingDatabaseTarget?: {
+    kind: "agent";
+    agentId: string;
+    path: string;
+    env: NodeJS.ProcessEnv;
+    identity: DatabaseFileIdentity;
+    assertCurrent: () => void;
+  };
 };
 
 export function prepareAuthProfileWriteEnvironment(
@@ -458,7 +498,10 @@ export function runAuthProfileWriteTransaction<T>(
   operation: (database: AuthProfileDatabase, owner: PreparedAuthProfileStoreOwner) => T,
   options: AuthProfileWriteOptions = {},
 ): T {
-  const { databaseTarget, sharedOwner } = prepareAuthProfileWriteTransaction(agentDir, options);
+  const existing = options.existingDatabaseTarget;
+  const { databaseTarget, sharedOwner } = existing
+    ? { databaseTarget: existing, sharedOwner: prepareAuthProfileSharedOwner(existing.env) }
+    : prepareAuthProfileWriteTransaction(agentDir, options);
   const run = (database: AuthProfileDatabase) => {
     const previous = authProfileTransactions.get(database);
     const owner = previous ?? { ...sharedOwner, databasePath: database.path };
@@ -474,6 +517,14 @@ export function runAuthProfileWriteTransaction<T>(
   if (databaseTarget.kind === "agent") {
     return runOpenClawAgentWriteTransaction(run, databaseTarget, {
       operationLabel: "auth-profiles.write",
+      ...(existing
+        ? {
+            repairAdmission: {
+              expectedIdentity: existing.identity,
+              assertCurrent: existing.assertCurrent,
+            },
+          }
+        : {}),
     });
   }
   const { env } = databaseTarget;

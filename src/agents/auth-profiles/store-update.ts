@@ -9,9 +9,10 @@ import { createSqliteLifecycleAggregateError } from "../../infra/sqlite-lifecycl
 import { hasSqliteWorkerOutcomeUnknown } from "../../infra/sqlite-worker-contract.js";
 import {
   createSqliteWorkerOperationAdmission,
+  observeSqliteWorkerCommittedFacts,
+  type SqliteWorkerAdmissionFactory,
   type SqliteWorkerAdmissionRequest,
 } from "../../infra/sqlite-worker-operation-admission.js";
-import type { SqliteWorkerNativeSettlementOwner } from "../../infra/sqlite-worker-operation-settlement.js";
 import type { AgentDatabaseRequestExecutionSource } from "../../state/openclaw-agent-execution-admission-contract.js";
 import type { captureOpenClawAgentDatabaseExecution } from "../../state/openclaw-agent-execution.js";
 import { executeOpenClawAgentWorkerPublication } from "../../state/openclaw-agent-worker-store.js";
@@ -20,6 +21,7 @@ import { getOpenClawDatabaseMaintenanceScope } from "../../state/openclaw-state-
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { captureOpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.js";
 import { runOpenClawStateWorkerOperation } from "../../state/openclaw-state-worker-store.js";
+import { authProfileCredentialPublication } from "../../state/user-model-account-authority.js";
 import { isUserModelAuthProfileId } from "../../state/user-model-account-id.js";
 import { takeAuthProfileAuthorizationWriteIntents } from "./authorization-lifetime.js";
 import { fenceAuthProfileAuthorizationWrite } from "./authorization-observation.js";
@@ -69,7 +71,6 @@ import { watchAuthProfileNativeCommits } from "./store-update-commit.js";
 import type {
   AuthStoreUpdatePrepared,
   AuthStoreUpdateCommitted,
-  AuthStoreUpdateCommittedWire,
   AuthStoreUpdateResponse,
   AuthStoreUpdateResponseWire,
 } from "./store-update-kernel.js";
@@ -192,7 +193,6 @@ async function runPreparedAuthProfileStoreUpdate(
   const owner = { ...sharedOwner, databasePath: databaseTarget.path };
   let acknowledged = false;
   let settleAuthorization: ReturnType<typeof fenceAuthProfileAuthorizationWrite> | undefined;
-  let authorizationAdmission: SqliteWorkerNativeSettlementOwner | undefined;
   let authorizationPostimage: unknown;
   let exchangePort: MessagePort | undefined;
   let nativeCommits: ReturnType<typeof watchAuthProfileNativeCommits> | undefined;
@@ -293,36 +293,75 @@ async function runPreparedAuthProfileStoreUpdate(
       );
       return true;
     };
-    const collectCommitted = (admission: SqliteWorkerNativeSettlementOwner) => {
+    const collectCommitted = () => {
       nativeCommits ??= watchAuthProfileNativeCommits(owner.databasePath);
       committedIsCurrent = nativeCommits.capture();
       if (exchangePort) {
         // SAFETY: The paired worker queues canonical fields before requesting its commit grant.
         const received = receiveAuthProfileUpdateValue(exchangePort) as
-          | AuthStoreUpdateCommittedWire
+          | AuthStoreUpdateCommitted
           | undefined;
-        committed = received && {
-          ...received,
-          publication: {
-            ...received.publication,
-            oauthRefreshClaimIds: new Map(
-              received.publication.oauthRefreshClaimIds.map(([profileId, claimId]) => [
-                profileId,
-                claimId ?? undefined,
-              ]),
-            ),
-          },
-        };
+        committed = received;
       }
       if (committed?.publication.credentialsChanged) {
         authorizationPostimage = {
           profiles: committed.store.profiles,
           authorizationLifetimes: committed.authorizationLifetimes,
         };
-        authorizationAdmission = admission;
         settleAuthorization = fenceAuthProfileAuthorizationWrite(owner.databasePath);
       }
     };
+    const withCredentialPublication =
+      (
+        createAdmission: (collect: () => void) => SqliteWorkerAdmissionFactory,
+      ): SqliteWorkerAdmissionFactory =>
+      (operation) => {
+        let publication: ReturnType<typeof authProfileCredentialPublication.begin> | undefined;
+        let authorizationCommitted = false;
+        const retained = createAdmission(() => {
+          collectCommitted();
+          const owner = committed?.credentialOwner;
+          if (owner) {
+            publication = authProfileCredentialPublication.begin({
+              ...owner,
+              assertCurrent: assertAuthority,
+            });
+          }
+        })(operation);
+        const { admission } = retained;
+        observeSqliteWorkerCommittedFacts(admission, ({ facts }) => {
+          const credentials = isRecord(facts) ? facts.authCredentials : undefined;
+          publication?.committed(credentials);
+          authorizationCommitted =
+            publication !== undefined && !(isRecord(credentials) && credentials.kind === "unknown");
+        });
+        const finishAuthorization = (known: boolean) => {
+          // Native settlement, not delivery of the operation result, owns this projection.
+          const receipt = admission.committed;
+          settleAuthorization?.(
+            known && (!receipt || authorizationCommitted),
+            authorizationCommitted && committedIsCurrent() ? authorizationPostimage : undefined,
+          );
+        };
+        const finish = admission.finish.bind(admission);
+        admission.finish = () => {
+          try {
+            finish();
+          } finally {
+            if (admission.settlement) {
+              const confirmed = admission.settlement.kind === "completed";
+              publication?.finish(confirmed, confirmed && !admission.committed);
+              finishAuthorization(confirmed);
+            }
+          }
+        };
+        void operation.settled.then((outcome) => {
+          const known = outcome.kind !== "unknown";
+          publication?.finish(known, known && !admission.committed);
+          finishAuthorization(known);
+        });
+        return retained;
+      };
     const input = {
       owner: {
         databasePath: owner.databasePath,
@@ -335,7 +374,6 @@ async function runPreparedAuthProfileStoreUpdate(
     };
     const publish = () => {
       acknowledged = true;
-      settleAuthorization?.(true, committedIsCurrent() ? authorizationPostimage : undefined);
       return params.publish(committed, owner, assertAuthority, nativeCommits!, committedIsCurrent);
     };
     if (databaseTarget.kind === "shared-state") {
@@ -356,27 +394,29 @@ async function runPreparedAuthProfileStoreUpdate(
         },
         {
           assertCurrent: assertOwner,
-          createAdmission: () => {
+          createAdmission: withCredentialPublication((collect) => () => {
             let phase: "waiting" | "transaction" | "commit" = "waiting";
-            const admission = createSqliteWorkerOperationAdmission((request, grant) => {
-              assertRequest();
-              if (phase === "waiting" && request.stage === "transaction" && receive(request)) {
+            return {
+              nativeLocations: [owner.databasePath],
+              admission: createSqliteWorkerOperationAdmission((request, grant) => {
                 assertRequest();
-                phase = "transaction";
-              } else if (phase === "transaction" && request.stage === "commit") {
-                collectCommitted(admission);
-                assertRequest();
-                phase = "commit";
-              } else {
-                throw new Error("Auth profile worker requested authority out of order");
-              }
-              if (!grant()) {
-                throw new Error("Auth profile worker authority expired");
-              }
-              commitGranted ||= request.stage === "commit";
-            });
-            return { nativeLocations: [owner.databasePath], admission };
-          },
+                if (phase === "waiting" && request.stage === "transaction" && receive(request)) {
+                  assertRequest();
+                  phase = "transaction";
+                } else if (phase === "transaction" && request.stage === "commit") {
+                  collect();
+                  assertRequest();
+                  phase = "commit";
+                } else {
+                  throw new Error("Auth profile worker requested authority out of order");
+                }
+                if (!grant()) {
+                  throw new Error("Auth profile worker authority expired");
+                }
+                commitGranted ||= request.stage === "commit";
+              }),
+            };
+          }),
         },
       );
     }
@@ -389,40 +429,42 @@ async function runPreparedAuthProfileStoreUpdate(
     const source: AgentDatabaseRequestExecutionSource = {
       assertCurrent,
       createAdmission(binding) {
-        return () => {
+        return withCredentialPublication((collect) => () => {
           let transactionFacts: unknown;
-          const admission = createSqliteWorkerOperationAdmission((request, grant) => {
-            assertRequest();
-            if (request.stage === "transaction") {
-              transactionFacts = request.facts;
-              if (!params.envOnly) {
-                captureSharedSource();
+          return {
+            nativeLocations: binding.nativeLocations,
+            admission: createSqliteWorkerOperationAdmission((request, grant) => {
+              assertRequest();
+              if (request.stage === "transaction") {
+                transactionFacts = request.facts;
+                if (!params.envOnly) {
+                  captureSharedSource();
+                }
               }
-            }
-            if (
-              request.stage === "prepare" &&
-              isRecord(request.facts) &&
-              request.facts.kind === "auth-store-update"
-            ) {
-              if (!transactionFacts) {
-                throw new Error("Auth profile callback requires transaction admission");
+              if (
+                request.stage === "prepare" &&
+                isRecord(request.facts) &&
+                request.facts.kind === "auth-store-update"
+              ) {
+                if (!transactionFacts) {
+                  throw new Error("Auth profile callback requires transaction admission");
+                }
+                binding.authorize({ stage: "prepare", facts: transactionFacts });
+                receive(request);
+              } else {
+                binding.authorize(request);
               }
-              binding.authorize({ stage: "prepare", facts: transactionFacts });
-              receive(request);
-            } else {
-              binding.authorize(request);
-            }
-            if (request.stage === "commit") {
-              collectCommitted(admission);
-            }
-            assertRequest();
-            if (!grant()) {
-              throw new Error("Auth profile worker authority expired");
-            }
-            commitGranted ||= request.stage === "commit";
-          }, binding.attachment);
-          return { nativeLocations: binding.nativeLocations, admission };
-        };
+              if (request.stage === "commit") {
+                collect();
+              }
+              assertRequest();
+              if (!grant()) {
+                throw new Error("Auth profile worker authority expired");
+              }
+              commitGranted ||= request.stage === "commit";
+            }, binding.attachment),
+          };
+        });
       },
     };
     let outcome: Result<void, unknown>;
@@ -487,14 +529,6 @@ async function runPreparedAuthProfileStoreUpdate(
       throw error;
     })
     .finally(() => {
-      // Reading the receipt drains queued native settlement before inspecting its disposition.
-      const receipt = authorizationAdmission?.committed;
-      settleAuthorization?.(
-        authorizationAdmission?.settlement?.kind === "completed",
-        receipt?.facts === "auth-profile-authorization" && committedIsCurrent()
-          ? authorizationPostimage
-          : undefined,
-      );
       exchangePort?.close();
       nativeCommits?.dispose();
       sharedSource?.commits.dispose();

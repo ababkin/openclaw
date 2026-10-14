@@ -40,6 +40,10 @@ const enCron = {
       eventArgumentsInvalid: "Enter a valid JSON object for subscription arguments.",
       eventArgumentsSchema: "Subscription arguments do not match the event’s input schema.",
     },
+    linkedRun: {
+      label: "Showing the linked run.",
+      showAll: "Show all runs",
+    },
     suggestions: {
       title: "Starter automations",
       schedules: {

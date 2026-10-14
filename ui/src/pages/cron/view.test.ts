@@ -1,5 +1,5 @@
 // Control UI tests cover the Automations (cron) list pane and select controls.
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { DEFAULT_CRON_FORM } from "../../test-helpers/cron.ts";
 import { updatePickers, choosePickerValue } from "../../test-helpers/select-picker.ts";
 import {
@@ -45,7 +45,7 @@ describe("cron view list pane", () => {
       onListTabChange,
     });
 
-    const labels = Array.from(container.querySelectorAll(".cron-list-hub-tabs wa-tab"), (tab) =>
+    const labels = Array.from(container.querySelectorAll(".cron-list-hub-tabs .hub-tab"), (tab) =>
       tab.textContent?.trim(),
     );
     expect(labels).toEqual(["All", "Active", "Paused", "Run history"]);
@@ -84,9 +84,9 @@ describe("cron view list pane", () => {
       "at",
       "every",
       "cron",
+      "event",
       "on-exit",
       "stream",
-      "event",
     ]);
     for (const scheduleKind of ["on-exit", "stream", "event"] as const) {
       scheduleFilter.value = scheduleKind;
@@ -278,6 +278,7 @@ describe("cron view editor", () => {
       form: {
         ...DEFAULT_CRON_FORM,
         scheduleKind: "cron",
+        deliveryMode: "announce",
         deliveryChannel: "telegram",
         failureAlertMode: "custom",
         failureAlertDeliveryMode: "webhook",
@@ -294,6 +295,7 @@ describe("cron view editor", () => {
     for (const field of ["name", "sessionKey", "deliveryAccountId", "payloadModel"] as const) {
       const id = `cron-${field.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
       const input = getElement(container, `#${id}`, HTMLInputElement);
+      expect(input.disabled).toBe(false);
       if (field === "sessionKey" || field === "deliveryAccountId") {
         expect(input.placeholder).toBe(field === "sessionKey" ? "agent:main:main" : "default");
       }
@@ -340,13 +342,15 @@ describe("cron view editor", () => {
       form: { ...DEFAULT_CRON_FORM, scheduleKind: "every" },
       onFormChange,
     });
+    document.body.append(everyContainer);
+    onTestFinished(() => everyContainer.remove());
     expect(everyContainer.querySelector("#cron-every-amount")).not.toBeNull();
     expect(everyContainer.querySelector("#cron-cron-expr")).toBeNull();
     const activeEvery = getElement(
       everyContainer,
-      '[data-test-id="cron-schedule-kind-every"]',
-      HTMLElement,
-    ) as HTMLElement & { checked: boolean };
+      '[data-test-id="cron-schedule-kind-every"] input',
+      HTMLInputElement,
+    );
     expect(activeEvery.checked).toBe(true);
     selectSegmented(
       getElement(everyContainer, '[data-test-id="cron-schedule-kind-cron"]', HTMLElement),
@@ -375,6 +379,8 @@ describe("cron view editor", () => {
       form: { ...DEFAULT_CRON_FORM, scheduleKind: "cron", deleteAfterRun: true },
       onFormChange,
     });
+    document.body.append(cronContainer);
+    onTestFinished(() => cronContainer.remove());
     expect(cronContainer.querySelector("#cron-cron-expr")).not.toBeNull();
     expect(findToggleByLabel(cronContainer, "Delete after run")).toBeNull();
     selectSegmented(
@@ -401,6 +407,8 @@ describe("cron view editor", () => {
       form: { ...DEFAULT_CRON_FORM, scheduleKind: "on-exit", deleteAfterRun: false },
       onFormChange: onExitFormChange,
     });
+    document.body.append(keptOnExitContainer);
+    onTestFinished(() => keptOnExitContainer.remove());
     selectSegmented(
       getElement(keptOnExitContainer, '[data-test-id="cron-schedule-kind-at"]', HTMLElement),
     );

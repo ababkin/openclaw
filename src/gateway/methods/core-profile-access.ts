@@ -52,6 +52,7 @@ const PROFILE_DEPENDENT_CORE_PREFIXES = [
   "transcripts.",
   "users.authConnect.",
   "users.prefs.",
+  "users.background.",
   "themes.",
   "users.github.",
   "skills.library.",

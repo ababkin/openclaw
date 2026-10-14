@@ -47,6 +47,6 @@ export function createMockCronService(
     getJob: vi.fn(() => undefined),
     readJob: vi.fn(async () => undefined),
     getDefaultAgentId: vi.fn(() => undefined),
-    wake: vi.fn(() => ({ ok: true })),
+    wake: vi.fn<CronServiceContract["wake"]>(async () => ({ ok: true })),
   };
 }

@@ -4,7 +4,6 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolvePathViaExistingAncestorSync } from "../infra/boundary-path.js";
 import { trackAsyncWork } from "../shared/async-work-scope.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
-import { runOpenClawStateWorkerOperation } from "../state/openclaw-state-worker-store.js";
 import { isUserModelAuthProfileId } from "../state/user-model-account-id.js";
 import { enrollOwnedAuthProfileAuthorization } from "./auth-profiles/authorization-enrollment-runtime.js";
 import { readAuthProfileAuthorizationLifetime } from "./auth-profiles/authorization-lifetime.js";
@@ -16,7 +15,6 @@ import {
   resolveSharedAuthStoreOwnershipAsync,
   resolveSharedAuthStorePath,
 } from "./auth-profiles/path-resolve.js";
-import { readAuthProfileRowsIdentity } from "./auth-profiles/runtime-persisted-rows.js";
 import { mergeLocalAuthProfileStoreWithInheritedStore } from "./auth-profiles/runtime-snapshot-owner.js";
 import {
   loadPersistedAuthProfileStoreFromRows,
@@ -145,26 +143,8 @@ export async function captureMcpAuthProfileAuthorization(params: {
     };
     const readCanonical = async () => {
       assertOwners();
-      // The owner cache is process-stable, so also observe another process's relocation explicitly.
-      const publishedOwnership = await runOpenClawStateWorkerOperation(
-        context,
-        (scope) =>
-          scope.execute({
-            type: "authProfiles.sharedOwnership",
-            input: { artifactPreserving: false },
-          }),
-        { existingOnly: true },
-      );
-      assertOwners();
-      if (
-        publishedOwnership === undefined
-          ? ownership.location !== "legacy-main"
-          : JSON.stringify(publishedOwnership) !== JSON.stringify(ownership)
-      ) {
-        retired = true;
-        throw new McpConnectionAuthorityError("retired");
-      }
-      const before = targets.map((target) => readAuthProfileRowsIdentity(target.databasePath));
+      // The credential writer fences pending, changed, or uncertain publications. Physical
+      // admission generations may change on every cold read without a credential write.
       const publishers = targets.map((target) => target.observation.prepareRead());
       const rows = await Promise.all(
         targets.map(async (target) => {
@@ -180,11 +160,6 @@ export async function captureMcpAuthProfileAuthorization(params: {
         }),
       );
       assertOwners();
-      for (let index = 0; index < targets.length; index++) {
-        if (readAuthProfileRowsIdentity(targets[index]!.databasePath) !== before[index]) {
-          throw new McpConnectionAuthorityError("unavailable");
-        }
-      }
       const stores = rows.map((row, index) => {
         const target = targets[index]!;
         const store = loadPersistedAuthProfileStoreFromRows(row, target.databasePath) ?? {

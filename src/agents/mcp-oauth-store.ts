@@ -1,4 +1,5 @@
 // Canonical MCP OAuth session state. Legacy JSON import belongs to doctor only.
+import type { SqliteWorkerCommand } from "../infra/sqlite-worker-contract.js";
 import {
   createSqliteWorkerWriteAdmission,
   type SqliteWorkerStore,
@@ -24,6 +25,7 @@ import {
   type McpOAuthPrincipalStatus,
 } from "./mcp-oauth-status.js";
 import { retainMcpOAuthAuthorizationState } from "./mcp-oauth-store.authorization.js";
+import type { McpOAuthReadOnlyOperations } from "./mcp-oauth-store.kernel.js";
 import type { McpOAuthStore, McpOAuthMutation } from "./mcp-oauth-store.types.js";
 export type { McpOAuthStore } from "./mcp-oauth-store.types.js";
 
@@ -32,6 +34,17 @@ export type McpOAuthStoreWriteOptions = {
   lease: OpenClawStateAsyncLeaseContext;
   context: OpenClawStateWorkerContext;
 };
+
+function readExisting(
+  context: OpenClawStateWorkerContext,
+  command: SqliteWorkerCommand<McpOAuthReadOnlyOperations>,
+) {
+  return executeExistingOpenClawStateRead(
+    { path: context.admission.databasePath, env: context.environment },
+    command,
+    { context },
+  );
+}
 
 /** Read canonical state, opening the writable lifecycle when runtime owns it. */
 export async function readMcpOAuthStore(
@@ -46,11 +59,7 @@ export async function readMcpOAuthStoreReadOnly(
   storeKey: string,
   context: OpenClawStateWorkerContext = captureOpenClawStateWorkerContext(),
 ): Promise<McpOAuthStore> {
-  const result = await executeExistingOpenClawStateRead(
-    { path: context.admission.databasePath, env: context.environment },
-    { type: "mcpOAuth.readOnly", input: storeKey },
-    { context },
-  );
+  const result = await readExisting(context, { type: "mcpOAuth.readOnly", input: storeKey });
   if (result === undefined) {
     return {};
   }
@@ -67,11 +76,7 @@ export async function readMcpOAuthStoreStatuses(
   if (storeKeys.length === 0) {
     return [];
   }
-  const result = await executeExistingOpenClawStateRead(
-    { path: context.admission.databasePath, env: context.environment },
-    { type: "mcpOAuth.statuses", input: storeKeys },
-    { context },
-  );
+  const result = await readExisting(context, { type: "mcpOAuth.statuses", input: storeKeys });
   if (result === undefined) {
     return storeKeys.map(() => projectMcpOAuthCredentialsStatus({}));
   }
@@ -86,11 +91,7 @@ export async function listMcpOAuthStoreKeysByPrefix(
   prefix: string,
   context: OpenClawStateWorkerContext = captureOpenClawStateWorkerContext(),
 ): Promise<string[]> {
-  const result = await executeExistingOpenClawStateRead(
-    { path: context.admission.databasePath, env: context.environment },
-    { type: "mcpOAuth.keys", input: prefix },
-    { context },
-  );
+  const result = await readExisting(context, { type: "mcpOAuth.keys", input: prefix });
   if (result === undefined) {
     return [];
   }
@@ -102,11 +103,7 @@ export async function listMcpOAuthStoreKeysByPrefix(
 
 export async function countMcpOAuthStorePrincipals(prefix: string): Promise<number> {
   const context = captureOpenClawStateWorkerContext();
-  const result = await executeExistingOpenClawStateRead(
-    { path: context.admission.databasePath, env: context.environment },
-    { type: "mcpOAuth.countPrincipals", input: prefix },
-    { context },
-  );
+  const result = await readExisting(context, { type: "mcpOAuth.countPrincipals", input: prefix });
   if (result === undefined) {
     return 0;
   }
@@ -121,11 +118,7 @@ export async function readMcpOAuthPendingAuthorization(
   state: string,
   context: OpenClawStateWorkerContext = captureOpenClawStateWorkerContext(),
 ): Promise<string | undefined> {
-  const result = await executeExistingOpenClawStateRead(
-    { path: context.admission.databasePath, env: context.environment },
-    { type: "mcpOAuth.pending", input: state },
-    { context },
-  );
+  const result = await readExisting(context, { type: "mcpOAuth.pending", input: state });
   if (result === undefined) {
     return undefined;
   }
@@ -233,7 +226,6 @@ async function runMcpOAuthCredentialWrite<T>(
   let owner: ReturnType<typeof retainMcpOAuthAuthorizationState> | undefined;
   let settle: ReturnType<ReturnType<typeof retainMcpOAuthAuthorizationState>["fence"]> | undefined;
   let publicationSettled: Promise<void> | undefined;
-  const assertCaller = authority?.assertCurrent;
   const beforeCommit = authority?.beforeCommit;
   try {
     return await withOpenClawStateLeaseWorkerAdmission(
@@ -268,7 +260,8 @@ async function runMcpOAuthCredentialWrite<T>(
           },
         }),
       {
-        assertCurrent: () => assertCaller?.(),
+        ...authority,
+        assertCurrent: authority?.assertCurrent ?? (() => {}),
         beforeCommit() {
           beforeCommit?.();
           owner = retainMcpOAuthAuthorizationState(context.admission, storeKey);

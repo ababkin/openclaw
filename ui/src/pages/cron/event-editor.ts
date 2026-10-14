@@ -45,15 +45,25 @@ export class CronEventEditorController {
   }
 
   get view(): CronEventSourceView {
+    const cron = this.host.currentCronState();
+    const available = this.available;
+    const active =
+      Boolean(cron.cronCreateOpen || cron.cronEditingJob) &&
+      cron.cronForm.scheduleKind === "event" &&
+      cron.cronForm.eventSource === "mcp-events" &&
+      this.host.isConnected() &&
+      available;
     return {
-      available: this.available,
-      servers: (
-        summarizeMcpServers(
-          this.host.context().runtimeConfig.state.configSnapshot?.config ?? null,
-        ) ?? []
-      )
-        .filter((server) => server.enabled)
-        .map((server) => server.name),
+      available,
+      servers: active
+        ? (
+            summarizeMcpServers(
+              this.host.context().runtimeConfig.state.configSnapshot?.config ?? null,
+            ) ?? []
+          )
+            .filter((server) => server.enabled)
+            .map((server) => server.name)
+        : [],
       loading: this.source.loading,
       error: this.source.error,
       events: this.source.events,
@@ -76,7 +86,7 @@ export class CronEventEditorController {
       (cron.cronCreateOpen || cron.cronEditingJob) &&
       form.scheduleKind === "event" &&
       form.eventSource === "mcp-events";
-    if (!active || !this.available) {
+    if (!active || !this.host.isConnected() || !connection || !this.available) {
       if (force || this.scopeKey) {
         this.reset();
       }
@@ -101,10 +111,6 @@ export class CronEventEditorController {
       return;
     }
     this.scopeKey = key;
-    this.source.reset();
-    if (!connection) {
-      return;
-    }
     if (this.host.canManage()) {
       void this.host.context().runtimeConfig.ensureLoaded();
     }

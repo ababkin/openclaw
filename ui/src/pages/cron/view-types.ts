@@ -89,6 +89,7 @@ export type CronProps = {
   onJobsFiltersReset: () => void | Promise<void>;
   onLoadMoreRuns: () => void;
   onRunsFiltersChange: (patch: {
+    cronRunsRunId?: string | null;
     cronRunsStatuses?: CronRunsStatusValue[];
     cronRunsDeliveryStatuses?: CronDeliveryStatus[];
     cronRunsQuery?: string;
@@ -96,3 +97,5 @@ export type CronProps = {
   }) => void | Promise<void>;
   onViewRunTranscript?: (entry: CronRunLogEntry, trigger: HTMLButtonElement) => void;
 };
+
+export type CronPanelMode = "overview" | "create" | "job";

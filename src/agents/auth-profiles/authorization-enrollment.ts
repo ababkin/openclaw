@@ -2,7 +2,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import { enrollAuthProfileAuthorization } from "./authorization-lifetime.js";
 import { AUTH_STORE_VERSION } from "./constants.js";
-import { inspectAuthProfileJsonCell, writeAuthProfileJsonCell } from "./sqlite-json.js";
+import { writeAuthProfileJsonCell } from "./sqlite-json-write.js";
+import { inspectAuthProfileJsonCell } from "./sqlite-json.js";
 import type { AuthProfileRowRead } from "./types.js";
 
 export type AuthProfileAuthorizationEnrollment = {

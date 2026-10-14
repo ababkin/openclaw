@@ -97,6 +97,49 @@ describe("MCP auth-profile authorization", () => {
     });
   });
 
+  it("refuses a stale canonical snapshot after the native writer replaces credentials", async () => {
+    const root = await seedRoot("original");
+    await withEnvAsync(root.env, async () => {
+      const authority = await captureMcpAuthProfileAuthorization({
+        profileId: "shared",
+        agentDir: root.agentDir,
+        assertCurrent: source().assertCurrent,
+      });
+      const entered = createDeferredCore();
+      const release = createDeferredCore();
+      const readRows = sqliteRead.readSharedAuthProfileRows;
+      const spy = vi
+        .spyOn(sqliteRead, "readSharedAuthProfileRows")
+        .mockImplementation(async (...args) => {
+          const rows = await readRows(...args);
+          entered.resolve();
+          await release.promise;
+          return rows;
+        });
+      const pending = authority.revalidate();
+      const refused = expect(pending).rejects.toMatchObject({
+        code: "MCP_AUTHORIZATION_UNAVAILABLE",
+      });
+      try {
+        await entered.promise;
+        await upsertAuthProfileWithLockOrThrow({
+          profileId: "shared",
+          credential: apiKey("replacement"),
+        });
+        release.resolve();
+        await refused;
+        expect(authority.assertCurrent).toThrow(
+          expect.objectContaining({ code: "MCP_AUTHORIZATION_RETIRED" }),
+        );
+      } finally {
+        release.resolve();
+        await pending.catch(() => undefined);
+        spy.mockRestore();
+        authority.dispose();
+      }
+    });
+  });
+
   it("does not revive an old handle after remove and same-byte reconnect", async () => {
     const root = await seedRoot("original");
     await withEnvAsync(root.env, async () => {

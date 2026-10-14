@@ -3,7 +3,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolvePathViaExistingAncestorSync } from "../../infra/boundary-path.js";
 import { McpConnectionAuthorityError } from "../mcp-connection-authority-error.js";
 import { readAuthProfileAuthorizationLifetime } from "./authorization-lifetime.js";
-import { isOAuthRefreshFence, readPendingOAuthRefreshClaimId } from "./oauth-refresh-marker.js";
+import { isOAuthRefreshFence, isPendingOAuthRefreshFence } from "./oauth-refresh-marker.js";
 
 export type AuthProfileAuthorizationFact = {
   incarnation?: string;
@@ -32,14 +32,15 @@ function projectAuthProfileAuthorization(
     typeof credential.refresh === "string" &&
     typeof credential.expires === "number"
   ) {
-    const status = readPendingOAuthRefreshClaimId(credential)
+    const marker = {
+      type: "oauth",
+      access: credential.access,
+      refresh: credential.refresh,
+      expires: credential.expires,
+    } satisfies Parameters<typeof isOAuthRefreshFence>[0];
+    const status = isPendingOAuthRefreshFence(marker)
       ? "pending"
-      : isOAuthRefreshFence({
-            type: "oauth",
-            access: credential.access,
-            refresh: credential.refresh,
-            expires: credential.expires,
-          })
+      : isOAuthRefreshFence(marker)
         ? "retired"
         : "ready";
     return { incarnation, status, ...(!credential.refresh ? { expires: credential.expires } : {}) };

@@ -41,8 +41,6 @@ import {
   isOAuthRefreshFence,
   isPendingOAuthRefreshFence,
   isSameOAuthRefreshGeneration,
-  readPendingOAuthRefreshClaimId,
-  readOAuthRefreshGenerationDigest,
 } from "./oauth-refresh-marker.js";
 import { beginOAuthRefreshObservation } from "./oauth-refresh-observation.js";
 import {
@@ -75,10 +73,10 @@ import { resolveOAuthRefreshLockPath } from "./paths.js";
 import { withPersonalAuthProfileStore, type PersonalAuthProfileStore } from "./personal-store.js";
 import { resolveAuthProfileDatabasePath } from "./sqlite.js";
 import {
-  ensureAuthProfileStoreWithoutExternalProfiles,
+  ensureAuthProfileStoreWithoutExternalProfilesAsync,
+  resolvePersistedAuthProfileOwnerAgentDirAsync,
   updateAuthProfileStoreWithLock,
 } from "./store-runtime.js";
-import { resolvePersistedAuthProfileOwnerAgentDir } from "./store.js";
 import type { AuthProfileStore, OAuthCredential, OAuthCredentials } from "./types.js";
 import { runAuthProfileUsage } from "./usage-lifecycle.js";
 
@@ -147,16 +145,16 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
     return { apiKey, credential: accepted };
   }
 
-  function adoptNewerMainOAuthCredential(params: {
+  async function adoptNewerMainOAuthCredential(params: {
     profileId: string;
     agentDir?: string;
     credential: OAuthCredential;
-  }): OAuthCredential | null {
+  }): Promise<OAuthCredential | null> {
     if (!params.agentDir || isUserModelAuthProfileId(params.profileId)) {
       return null;
     }
     try {
-      const mainStore = ensureAuthProfileStoreWithoutExternalProfiles(undefined, {
+      const mainStore = await ensureAuthProfileStoreWithoutExternalProfilesAsync(undefined, {
         allowKeychainPrompt: false,
       });
       const mainCred = mainStore.profiles[params.profileId];
@@ -304,7 +302,7 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
     const personalProfile = isUserModelAuthProfileId(params.profileId);
     const ownerAgentDir = personalProfile
       ? undefined
-      : resolvePersistedAuthProfileOwnerAgentDir(params);
+      : await resolvePersistedAuthProfileOwnerAgentDirAsync(params);
     const authPath =
       params.personalStore?.databasePath ??
       (ownerAgentDir
@@ -501,20 +499,7 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
             profileId: params.profileId,
             credential: credentialToRefresh,
           });
-          const claimId = readPendingOAuthRefreshClaimId(fence);
-          if (!claimId) {
-            throw new Error("OAuth refresh fence is missing its claim identity");
-          }
-          observation = beginOAuthRefreshObservation({
-            databasePath: authPath,
-            profileId: params.profileId,
-            provider: params.provider,
-            claimId,
-            generation: readOAuthRefreshGenerationDigest({
-              profileId: params.profileId,
-              credential: fence,
-            }),
-          });
+          observation = beginOAuthRefreshObservation();
           const claimed = await persistOAuthRefreshClaim({
             personalStore: params.personalStore,
             assertCurrent: () => {
@@ -567,11 +552,9 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
                 generation: peerGeneration,
                 fence,
                 rollbackOnFailure: false,
-                onFence: observation.includeDatabase,
               });
             }
           } catch (error) {
-            observation.beginSettlement();
             if (error instanceof OAuthRefreshPeerFenceError) {
               peerClaims = mergeOAuthRefreshPeerClaims(peerClaims, error.claims);
             }
@@ -705,7 +688,6 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
             generation,
             fence: claim.fence,
             rollbackOnFailure: false,
-            onFence: claim.observation.includeDatabase,
           }),
         );
       } catch (error) {
@@ -813,7 +795,6 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
       externalRefresh?: boolean;
       rediscoverPeers?: false;
     }): Promise<ResolvedOAuthAccess | null> => {
-      claim.observation.beginSettlement();
       const initiatingError = failure
         ? toErrorObject(failure.error, "OAuth refresh failed")
         : undefined;
@@ -868,7 +849,6 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
       } catch (error) {
         return await settleFailure({ error, externalRefresh: true });
       }
-      claim.observation.beginSettlement();
       if (!refreshed) {
         return await settleFailure();
       }
@@ -1025,7 +1005,7 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
       }
       credential = owned;
     }
-    const newerMainCredential = adoptNewerMainOAuthCredential({
+    const newerMainCredential = await adoptNewerMainOAuthCredential({
       profileId: params.profileId,
       agentDir: params.agentDir,
       credential,
@@ -1131,7 +1111,7 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
       }
       if (recoveryStoreLoaded && params.agentDir && !personalProfile && !recoveryBuildFailed) {
         try {
-          const mainStore = ensureAuthProfileStoreWithoutExternalProfiles(undefined, {
+          const mainStore = await ensureAuthProfileStoreWithoutExternalProfilesAsync(undefined, {
             allowKeychainPrompt: false,
           });
           const mainCred = mainStore.profiles[params.profileId];

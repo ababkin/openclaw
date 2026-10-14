@@ -81,5 +81,6 @@ export interface CronServiceContract {
     text: string;
     sessionKey?: string;
     agentId?: string;
-  }): CronWakeResult;
+    commitGuard?: () => void;
+  }): Promise<CronWakeResult>;
 }

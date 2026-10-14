@@ -78,18 +78,15 @@ export function applyMcpOAuthMutation(
         ? { store: { ...store, authorizationId: randomUUID() }, applied: true }
         : { store, applied: false };
     case "clientInformation":
-      return {
-        store: {
-          ...beginMcpOAuthAuthorization(store),
-          clientInformation: mutation.clientInformation,
-        },
-        applied: true,
-      };
-    case "discoveryState":
-      return {
-        store: { ...beginMcpOAuthAuthorization(store), discoveryState: mutation.discoveryState },
-        applied: true,
-      };
+    case "discoveryState": {
+      const next = beginMcpOAuthAuthorization(store);
+      if (mutation.kind === "clientInformation") {
+        next.clientInformation = mutation.clientInformation;
+      } else {
+        next.discoveryState = mutation.discoveryState;
+      }
+      return { store: next, applied: true };
+    }
     case "authorizationRedirect":
       return {
         store: {

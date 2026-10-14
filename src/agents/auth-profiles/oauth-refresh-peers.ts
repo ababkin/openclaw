@@ -25,7 +25,6 @@ import {
   isSameOAuthRefreshGeneration,
 } from "./oauth-refresh-marker.js";
 import { hasMatchingOAuthIdentity, hasOAuthIdentity } from "./oauth-shared.js";
-import { getRuntimeExternalCliProfileIds } from "./runtime-external-profile-references.js";
 import type { AuthProfileStore, OAuthCredential } from "./types.js";
 
 export type OAuthRefreshPeerClaim = {
@@ -76,10 +75,7 @@ function isExternalProfileOwned(
   profileId: string,
   credential: OAuthCredential,
 ): boolean {
-  if (
-    store.runtimeExternalProfileIds?.includes(profileId) === true ||
-    getRuntimeExternalCliProfileIds(store).includes(profileId)
-  ) {
+  if (store.runtimeExternalProfileIds?.includes(profileId) === true) {
     return true;
   }
   return isPersistedExternalCliAuthProfile({ profileId, credential });
@@ -194,7 +190,6 @@ export async function fenceOAuthRefreshPeers(params: {
   fence: OAuthCredential;
   rollbackOnFailure?: boolean;
   /** Register the transaction's exact claim before its fence can commit. */
-  onFence?: (databasePath: string) => void;
 }): Promise<OAuthRefreshPeerClaim[]> {
   const claims: OAuthRefreshPeerClaim[] = [];
   try {
@@ -212,7 +207,6 @@ export async function fenceOAuthRefreshPeers(params: {
             return false;
           }
           if (isExactOAuthCredential(credential, params.fence)) {
-            params.onFence?.(candidate.databasePath);
             claims.push({ candidate });
             return false;
           }
@@ -227,7 +221,6 @@ export async function fenceOAuthRefreshPeers(params: {
           ) {
             return false;
           }
-          params.onFence?.(candidate.databasePath);
           // Retain provisional custody if COMMIT succeeds but its reply is lost.
           claims.push({ candidate, original: { ...credential } });
           store.profiles[params.profileId] = continueAuthProfileAuthorization(credential, {

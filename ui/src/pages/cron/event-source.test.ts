@@ -197,7 +197,7 @@ describe("Automation event source", () => {
     const args = container.querySelector<HTMLTextAreaElement>("#cron-event-arguments")!;
     expect(args.getAttribute("aria-invalid")).toBe("true");
     args.value = '{"project":"api"}';
-    args.dispatchEvent(new Event("input"));
+    args.dispatchEvent(new Event("input", { bubbles: true }));
     expect(onFormChange).toHaveBeenCalledWith({ eventArguments: args.value });
     expect(container.textContent).toContain("Replay gap:");
     expect(container.querySelector("#cron-cron-expr")).toBeNull();
