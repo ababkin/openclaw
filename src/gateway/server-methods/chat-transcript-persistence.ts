@@ -7,6 +7,7 @@ import { filterStringEntries } from "@openclaw/normalization-core/string-normali
 import { getReplyPayloadMetadata } from "../../auto-reply/reply-payload.js";
 import {
   publishTranscriptUpdate,
+  type SessionTranscriptRuntimeTarget,
   type SessionTranscriptWriteScope,
   type TranscriptEvent,
 } from "../../config/sessions/session-accessor.js";
@@ -356,14 +357,16 @@ export async function persistAbortedPartial(params: {
       import("../../agents/sessions/session-manager.js"),
       import("../../agents/session-transcript-repair.js"),
     ]);
-    const manager = await SessionManager.openAsync({
+    const target: SessionTranscriptRuntimeTarget & SessionTranscriptWriteScope = {
       ...snapshot.value,
       expectedWriterRunId: snapshot.runId,
+      expectedLifecycleRevision: snapshot.value.expectedLifecycleRevision ?? undefined,
       expectedOwner: {
         lifecycleRevision: snapshot.value.expectedLifecycleRevision ?? undefined,
         activeWriterRunId: snapshot.runId,
       },
-    });
+    };
+    const manager = await SessionManager.openAsync(target);
     const messages = manager.buildSessionContext().messages;
     const start = messages.findLastIndex((message) => message.role === "user");
     for (const result of repairToolUseResultPairing(messages.slice(Math.max(0, start)), {

@@ -36,7 +36,7 @@ export type WorkerTurnEnvironmentService = Pick<
   >;
 
 export type ActiveWorkerPlacement = Extract<WorkerSessionPlacementRecord, { state: "active" }>;
-export type WorkerTurnPartialIdentity = WorkerSessionTurnClaim &
+export type WorkerTurnPartialIdentity = Pick<WorkerSessionTurnClaim, "sessionId" | "runId"> &
   Pick<ActiveWorkerPlacement, "sessionKey" | "agentId"> & { missingToolResultText?: string };
 
 export class WorkerTurnExecutionError extends Error {}
@@ -52,7 +52,7 @@ const TERMINAL_WORKER_CLEANUP_GRACE_MS = 30_000;
 export async function prepareWorkerTurnFailure(
   options: WorkerTurnAdmissionOptions & { environments: WorkerTurnEnvironmentService },
   placement: ActiveWorkerPlacement,
-  claim: WorkerTurnPartialIdentity,
+  claim: WorkerTurnPartialIdentity & WorkerSessionTurnClaim,
   error: unknown,
   assertCurrent: () => void,
   abortSignal: AbortSignal | undefined,

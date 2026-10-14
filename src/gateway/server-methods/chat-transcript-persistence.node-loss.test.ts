@@ -95,7 +95,7 @@ it.each(["", "Partial reply"])(
       "The node disconnected; outcome unknown. Verify state before retrying.";
     const persist = () =>
       persistAbortedPartials({
-        context: { logGateway: { warn: vi.fn() } },
+        context: { logGateway: { warn: () => {} } },
         snapshots: [snapshot],
         missingToolResultText,
       });

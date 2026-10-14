@@ -16,7 +16,7 @@ import {
 } from "../../../helpers/fixture-receipts.js";
 import { GATEWAY_RESTART_TEST_STOP_MS } from "../../../helpers/gateway-restart-budget.js";
 import { createOpenClawTestProcess } from "../../../helpers/openclaw-test-process.js";
-import { createDeferred, withinTest } from "../../../helpers/promise.js";
+import { awaitGateBeforeSettlement, createDeferred, withinTest } from "../../../helpers/promise.js";
 import { stopQaGatewayFixture } from "../../../helpers/qa-gateway-cleanup.js";
 import { runQaGatewayTestFixture } from "../../../helpers/qa-gateway-test-lifetime.js";
 import { MODEL_REF, PROOF_TIMEOUT_MS } from "./cloud-worker-midturn-loss-fixture.js";
@@ -41,11 +41,13 @@ it.skipIf(process.platform === "win32")(
     const gatewayOwner = createQaGatewayChild();
     const receipts = await openFixtureReceiptChannel();
     const hosts: Awaited<ReturnType<typeof createOpenClawTestProcess>>[] = [];
-    const processErrors: Error[] = [];
+    const processErrors: unknown[] = [];
     const providerErrors: unknown[] = [];
     const heldTools: ServerResponse[] = [];
     const toolEntered = createDeferred();
+    void toolEntered.promise.catch(() => {});
     const completed = createDeferred();
+    const originalTerminal = createDeferred();
     void completed.promise.catch(() => {});
     const runStarts = new Set<string>();
     const terminals: Array<{ runId: string; phase: string; yielded?: boolean }> = [];
@@ -55,6 +57,20 @@ it.skipIf(process.platform === "win32")(
     let published: Awaited<ReturnType<typeof createPublishedWireWorkspace>> | undefined;
     let verificationRequests = 0;
     let toolRequests = 0;
+    let stage = "opening fixture";
+    let gatewayLogs = () => "";
+    const hostLogs = new Map<string, string>();
+    const advance = (next: string) => {
+      stage = next;
+      process.stderr.write(`[midtool-node-loss] ${stage}\n`);
+    };
+    const diagnose = () => {
+      process.stderr.write(
+        `[midtool-node-loss] ${JSON.stringify({ stage, toolRequests, verificationRequests, runStarts: [...runStarts], terminals, providerErrors: providerErrors.map(String), processErrors: processErrors.map(String), hostLogs: Object.fromEntries(hostLogs) })}\n${gatewayLogs().slice(-12000)}\n`,
+      );
+    };
+    context.signal.addEventListener("abort", diagnose, { once: true });
+    context.onTestFinished(() => context.signal.removeEventListener("abort", diagnose));
     await runQaGatewayTestFixture(
       context,
       async ({ signal, createTempDir }) => {
@@ -67,6 +83,7 @@ it.skipIf(process.platform === "win32")(
           void (async () => {
             if (request.url === "/tool-entered") {
               heldTools.push(response);
+              process.stderr.write("[midtool-node-loss] physical exec reached HTTP barrier\n");
               toolEntered.resolve();
               return;
             }
@@ -77,6 +94,9 @@ it.skipIf(process.platform === "win32")(
             const body = JSON.parse(Buffer.concat(chunks).toString()) as (typeof requests)[number];
             expect(request.url).toBe("/v1/chat/completions");
             requests.push(body);
+            process.stderr.write(
+              `[midtool-node-loss] provider request ${requests.length}; tool results: ${JSON.stringify(body.messages?.filter((message) => message.role === "tool").map((message) => ({ id: message.tool_call_id, content: String(message.content).slice(0, 500) })))}\n`,
+            );
             const unknown = body.messages?.find(
               (message) =>
                 message.role === "tool" &&
@@ -145,6 +165,8 @@ it.skipIf(process.platform === "win32")(
             response.end("data: [DONE]\n\n");
           })().catch((error: unknown) => {
             providerErrors.push(error);
+            toolEntered.reject(error);
+            completed.reject(error);
             response.destroy();
           });
         });
@@ -158,6 +180,7 @@ it.skipIf(process.platform === "win32")(
         if (!address || typeof address === "string") {
           throw new Error("provider not listening");
         }
+        advance("publishing workspace");
         published = await createPublishedWireWorkspace(root);
         const identity = loadOrCreateDeviceIdentity({
           path: path.join(root, "node-identity.sqlite"),
@@ -185,6 +208,7 @@ it.skipIf(process.platform === "win32")(
             },
           },
         };
+        advance("starting Gateway");
         const gateway = await startPairedNodeWorkerGateway({
           owner: gatewayOwner,
           providerBaseUrl: "http://127.0.0.1:1",
@@ -196,6 +220,8 @@ it.skipIf(process.platform === "win32")(
             tempParentDir: root,
           },
         });
+        gatewayLogs = gateway.logs;
+        advance("connecting operator");
         operator = await connectWireClient({
           gateway,
           role: "operator",
@@ -209,14 +235,21 @@ it.skipIf(process.platform === "win32")(
               };
               if (payload.stream === "lifecycle") {
                 if (payload.data?.phase === "start") {
+                  process.stderr.write(`[midtool-node-loss] lifecycle start ${payload.runId}\n`);
                   runStarts.add(payload.runId);
                 }
                 if (payload.data?.phase === "end" || payload.data?.phase === "error") {
+                  if (payload.runId === RUN_ID) {
+                    originalTerminal.resolve();
+                  }
                   if (payload.data.phase === "error") {
                     completed.reject(
                       new Error(`worker turn failed: ${JSON.stringify(event.payload)}`),
                     );
                   }
+                  process.stderr.write(
+                    `[midtool-node-loss] lifecycle ${payload.data.phase} ${payload.runId}\n`,
+                  );
                   terminals.push({
                     runId: payload.runId,
                     phase: payload.data.phase,
@@ -230,7 +263,7 @@ it.skipIf(process.platform === "win32")(
             }
           },
         });
-        await operator.request("sessions.subscribe", {});
+        await operator.request("sessions.messages.subscribe", { key: SESSION_KEY });
         const fixtureUrl = pathToFileURL(
           path.resolve("test/e2e/qa-lab/runtime/paired-node-worker-wire-fixture.ts"),
         ).href;
@@ -252,9 +285,10 @@ import { connectWireClient, createPairedNodeWorkerHost } from ${JSON.stringify(f
 const options = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
 const source = process.argv[3];
 const operator = await connectWireClient({ gateway: options.gateway, role: 'operator', identity: null });
+process.stderr.write('operator connected\\n');
 let host;
 try {
-  host = await createPairedNodeWorkerHost({ ...options, operator });
+  host = await createPairedNodeWorkerHost({ ...options, operator, onInvoke: (frame) => process.stderr.write(frame.command + '\\n') });
   sendReceipt(source, 'ready');
   await awaitRelease(source, 'stop');
 } finally {
@@ -264,6 +298,7 @@ try {
 `,
         );
         const startHost = async (source: string) => {
+          advance(`starting ${source} node host`);
           const host = await createOpenClawTestProcess({
             argv: [
               process.execPath,
@@ -278,13 +313,14 @@ try {
             signal,
             onError: (error) => processErrors.push(error),
             onSpawnCleanup: (cleanup) =>
-              void cleanup.catch((error: Error) => processErrors.push(error)),
+              void cleanup.catch((error: unknown) => processErrors.push(error)),
           });
           hosts.push(host);
           host.process.stdout.resume();
           let stderr = "";
           host.process.stderr.on("data", (chunk: Buffer) => {
             stderr = (stderr + chunk.toString()).slice(-8000);
+            hostLogs.set(source, stderr);
           });
           const exited = new Promise<never>((_resolve, reject) => {
             host.process.once("exit", (code, reason) =>
@@ -292,9 +328,11 @@ try {
             );
           });
           await withinTest(Promise.race([receipts.waitFor(source, "ready"), exited]), signal);
+          advance(`${source} node host ready`);
           return host;
         };
         const original = await startHost("original");
+        advance("creating and dispatching session");
         await operator.request("sessions.create", {
           key: SESSION_KEY,
           agentId: "qa",
@@ -310,6 +348,7 @@ try {
             { timeoutMs: PROOF_TIMEOUT_MS },
           ),
         ).toMatchObject({ placement: { state: "active" } });
+        advance("starting original chat turn");
         expect(
           await operator.request("chat.send", {
             sessionKey: SESSION_KEY,
@@ -318,14 +357,25 @@ try {
             idempotencyKey: RUN_ID,
           }),
         ).toMatchObject({ runId: RUN_ID, status: "started" });
-        await withinTest(toolEntered.promise, signal);
+        advance("waiting for physical exec barrier");
+        await withinTest(
+          awaitGateBeforeSettlement(
+            toolEntered.promise,
+            originalTerminal.promise,
+            "original turn ended before its exec reached the physical barrier",
+          ),
+          signal,
+        );
         expect(await fs.readFile(counterFile, "utf8")).toBe("effect-once\n");
         // Kill only the node host, leaving the interrupted worker/tool to real recovery.
         // The custody owner is retained below to collect every orphan at teardown.
+        advance("killing original node host");
         process.kill(original.process.pid!, "SIGKILL");
         await withinTest(receipts.waitForExit("original"), signal);
         await startHost("replacement");
+        advance("waiting for automatic continuation completion");
         await withinTest(completed.promise, signal);
+        advance("verifying completed transcript and execution count");
         const history = await operator.request<{
           messages: Array<{ role?: string; toolCallId?: string }>;
         }>("chat.history", { sessionKey: SESSION_KEY, limit: 100 });
