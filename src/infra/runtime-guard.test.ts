@@ -335,7 +335,7 @@ describe("runtime-guard", () => {
       "Fix or unset OPENCLAW_SQLITE_LIBRARY; install a supported library with brew install sqlite.";
     await assertSupportedRuntime(runtime, {
       kind: "bun",
-      version: "1.4.2",
+      version: "1.4.3",
       execPath: "/usr/bin/bun",
       pathEnv: "/usr/bin",
       hasNodeSqlite: true,
@@ -343,7 +343,7 @@ describe("runtime-guard", () => {
       sqliteSelectionError,
     });
     expect(runtime.error).toHaveBeenCalledExactlyOnceWith(
-      `${sqliteSelectionError}\nDetected: bun 1.4.2 (exec: /usr/bin/bun).`,
+      `${sqliteSelectionError}\nDetected: bun 1.4.3 (exec: /usr/bin/bun).`,
     );
     expect(runtime.exit).toHaveBeenCalledExactlyOnceWith(1);
     expect(runtime.log).not.toHaveBeenCalled();

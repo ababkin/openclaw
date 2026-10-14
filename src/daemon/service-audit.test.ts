@@ -55,7 +55,7 @@ describe("auditGatewayServiceConfig runtime", () => {
     async (sqliteSelectionError) => {
       const sqliteVersion = sqliteSelectionError ? null : "3.51.2";
       resolveBunRuntimeInfoMock.mockResolvedValue({
-        version: sqliteSelectionError ? "1.4.2" : "1.4.0",
+        version: sqliteSelectionError ? "1.4.3" : "1.4.0",
         sqliteVersion,
         sqliteProbe: {
           available: !sqliteSelectionError,
