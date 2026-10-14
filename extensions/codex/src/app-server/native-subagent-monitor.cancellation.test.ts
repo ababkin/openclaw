@@ -136,7 +136,9 @@ it.each([true, false])(
   "retires only selected already-interrupted children and releases their parent claim (selected=%s)",
   async (selected) => {
     vi.useFakeTimers();
-    onTestFinished(() => vi.useRealTimers());
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const f = await nativeChild();
     await f.client.notify(childTurnCompletedNotification({ status: "interrupted" }));
     expect(isCodexAppServerLiveThreadClaimed(f.client.client, parentThreadId)).toBe(true);
