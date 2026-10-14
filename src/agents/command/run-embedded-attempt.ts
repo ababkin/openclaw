@@ -406,7 +406,7 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
             agentId: sessionAgentId,
             sessionEntry,
           });
-          const fastMode = params.opts.fastMode ?? fastModeState.mode;
+          const fastMode = params.opts.fastMode ?? fastModeState.requestMode;
           const configuredAuthProfileId =
             providerOverride === defaultProvider && modelOverride === defaultModel
               ? configuredDefaultAuthProfileId

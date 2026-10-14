@@ -426,7 +426,7 @@ export function createCronPromptExecutor(
             bootstrapContextRunKind: "cron",
             bootstrapPromptWarningSignaturesSeen,
             bootstrapPromptWarningSignature: bootstrapPromptWarningSignaturesSeen.at(-1),
-            fastMode: fastModeState.mode,
+            fastMode: fastModeState.requestMode,
             fastModeAutoOnSeconds: fastModeState.fastAutoOnSeconds,
             fastModeStartedAtMs,
             fastModeAutoProgressState,
