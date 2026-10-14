@@ -256,7 +256,7 @@ export function LogsPage() {
   });
 
   return (
-    <openclaw-logs-page ref={host}>
+    <openclaw-logs-page ref={(element) => (host = element)}>
       <ShellLayoutBoundary traits={{ logsPage: true, toolbarHeader: true }}>
         <section class="content-header">
           <div>

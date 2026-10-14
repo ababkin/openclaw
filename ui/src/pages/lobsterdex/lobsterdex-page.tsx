@@ -96,7 +96,7 @@ export function LobsterdexPage() {
   }
 
   return (
-    <openclaw-lobsterdex-page ref={host}>
+    <openclaw-lobsterdex-page ref={(element) => (host = element)}>
       <ShellLayoutBoundary traits={{ toolbarHeader: true }}>
         <section class="content-header">
           <h1 class="page-title">{t("tabs.lobsterdex")}</h1>
