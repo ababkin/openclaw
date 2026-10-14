@@ -1,0 +1,714 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, it } from "node:test";
+import { isDeepStrictEqual } from "node:util";
+import {
+  closeMessage,
+  evaluatePullRequest,
+  runStalePullRequests,
+  selectScanSlice,
+} from "../../scripts/github/stale-pr-lifecycle.mjs";
+
+const NOW = Date.parse("2026-10-14T12:00:00Z");
+const HEAD = "a".repeat(40);
+const OLD = "2026-07-01T00:00:00Z";
+const WARNING = "2026-08-01T00:00:00Z";
+const RECENT = "2026-10-14T10:00:00Z";
+const bot = { id: 257215752, type: "Bot", login: "openclaw-barnacle[bot]" };
+const human = { id: 123, type: "User", login: "contributor" };
+const warningBody =
+  "This pull request has been automatically marked as stale due to inactivity.\nPlease add updates or it will be closed.";
+
+function comment(id, body, at = WARNING, user = bot) {
+  return {
+    id,
+    body,
+    user,
+    created_at: at,
+    updated_at: at,
+    performed_via_github_app: user === bot ? { id: 2729701 } : null,
+  };
+}
+
+function snapshot(number = 10) {
+  return {
+    pr: {
+      number,
+      state: "open",
+      merged: false,
+      head: { sha: HEAD, ref: "feature", repo: { id: 55 } },
+      user: human,
+      author_association: "CONTRIBUTOR",
+      created_at: OLD,
+      updated_at: RECENT,
+      labels: [{ name: "stale" }],
+      assignees: [],
+    },
+    comments: [comment(1, warningBody)],
+    reviews: [],
+    reviewComments: [],
+    timeline: [],
+    runs: [],
+    statuses: [],
+    checkRollup: "FAILURE",
+    workflowRuns: [
+      {
+        id: 900,
+        head_sha: HEAD,
+        head_branch: "feature",
+        head_repository: { id: 55 },
+        event: "pull_request_target",
+        created_at: "2026-07-02T00:00:00Z",
+      },
+    ],
+    lastEditedAt: null,
+    editor: null,
+    ownershipProtection: null,
+  };
+}
+
+function harness(seed = snapshot(), onComment) {
+  const state = structuredClone(seed);
+  const writes = [];
+  const pages = [];
+  let nextId = 200;
+  const data = (value) => ({ data: structuredClone(value) });
+  const list =
+    (endpoint, rows, key) =>
+    async ({ page = 1 }) => {
+      pages.push({ endpoint, page });
+      const values = rows().slice((page - 1) * 100, page * 100);
+      return data(key ? { [key]: values } : values);
+    };
+  const github = {
+    rest: {
+      rateLimit: {
+        get: async () =>
+          data({
+            resources: {
+              core: { remaining: 15000, reset: 1800000000 },
+              graphql: { remaining: 5000, reset: 1800000000 },
+            },
+          }),
+      },
+      pulls: {
+        get: async () => data(state.pr),
+        list: list("pulls", () => (state.pr.state === "open" ? [state.pr] : [])),
+        listReviewComments: list("review-comments", () => state.reviewComments),
+        update: async () => {
+          writes.push("close");
+          state.pr.state = "closed";
+          return data(state.pr);
+        },
+      },
+      issues: {
+        get: async () => data({ closed_by: bot }),
+        listComments: list("comments", () => state.comments),
+        listEventsForTimeline: list("timeline", () => state.timeline),
+        createComment: async ({ body }) => {
+          writes.push(body === closeMessage ? "close-comment" : "warning");
+          const created = comment(nextId++, body, new Date(NOW).toISOString());
+          state.comments.push(created);
+          onComment?.(state);
+          return data(created);
+        },
+        getComment: async ({ comment_id }) =>
+          data(state.comments.find((item) => item.id === comment_id)),
+        addLabels: async () => {
+          writes.push("label");
+          return data([]);
+        },
+        removeLabel: async () => {
+          writes.push("unlabel");
+          return data({});
+        },
+      },
+      checks: { listForRef: list("checks", () => state.runs, "check_runs") },
+      actions: {
+        listWorkflowRunsForRepo: list("workflow-runs", () => state.workflowRuns, "workflow_runs"),
+      },
+      repos: {
+        getCollaboratorPermissionLevel: async () => data({ permission: "read", role_name: "read" }),
+        listCommitStatusesForRef: list("statuses", () => state.statuses),
+      },
+    },
+    graphql: async () => ({
+      rateLimit: { remaining: 5000, resetAt: "2027-01-15T08:00:00Z", cost: 1 },
+      repository: {
+        object: { oid: state.pr.head.sha, statusCheckRollup: { state: state.checkRollup } },
+        pullRequest: {
+          lastEditedAt: state.lastEditedAt,
+          editor: state.editor,
+          reviews: { nodes: state.reviews, pageInfo: { hasNextPage: false, endCursor: null } },
+        },
+      },
+    }),
+  };
+  const options = {
+    github,
+    checksGithub: github,
+    mutationGithub: github,
+    expectedAppId: 2729701,
+    context: { repo: { owner: "example", repo: "project" } },
+    core: { info() {}, warning() {} },
+    targets: [seed.pr.number],
+    now: () => NOW,
+  };
+  return { state, writes, pages, options };
+}
+
+describe("Barnacle PR inactivity", () => {
+  it("rejects human copies and mismatched app identities as warning authority", () => {
+    for (const copied of [human, bot]) {
+      const seed = snapshot();
+      seed.workflowRuns = [];
+      seed.comments = [
+        comment(
+          8,
+          `${warningBody}\n\n<!-- barnacle-stale-pr:v1 head=${HEAD} -->`,
+          "2026-10-06T12:00:00Z",
+          copied,
+        ),
+      ];
+      seed.comments[0].performed_via_github_app = copied === bot ? { id: 123 } : null;
+      assert.equal(evaluatePullRequest(seed, NOW).action, "preserve");
+    }
+    const seed = snapshot();
+    seed.comments.push(comment(9, closeMessage, RECENT, human));
+    assert.equal(evaluatePullRequest(seed, NOW).action, "unmark");
+  });
+
+  for (const missing of ["repo", "branch"])
+    it(`rejects a legacy witness missing source ${missing}`, () => {
+      const seed = snapshot();
+      if (missing === "repo") {
+        delete seed.pr.head.repo.id;
+        delete seed.workflowRuns[0].head_repository.id;
+      } else {
+        delete seed.pr.head.ref;
+        delete seed.workflowRuns[0].head_branch;
+      }
+      assert.equal(evaluatePullRequest(seed, NOW).reason, "unknown-legacy-head");
+    });
+
+  it("requires aggregate success for a product job but accepts a true gate independently", () => {
+    const seed = snapshot();
+    seed.runs = [
+      { head_sha: HEAD, name: "build-artifacts", status: "completed", conclusion: "success" },
+    ];
+    assert.equal(evaluatePullRequest(seed, NOW).action, "close");
+    seed.checkRollup = "SUCCESS";
+    assert.equal(evaluatePullRequest(seed, NOW).reason, "executed-ci-proof");
+    seed.checkRollup = "FAILURE";
+    seed.runs.push({
+      head_sha: HEAD,
+      name: "openclaw/ci-gate",
+      status: "completed",
+      conclusion: "success",
+    });
+    assert.equal(evaluatePullRequest(seed, NOW).reason, "executed-ci-proof");
+    seed.checkRollup = "SUCCESS";
+    seed.runs = [{ head_sha: HEAD, name: "metadata", status: "completed", conclusion: "success" }];
+    assert.equal(evaluatePullRequest(seed, NOW).action, "close");
+  });
+
+  it("routes all mutations to Barnacle and GraphQL/checks only to the checks reader", async () => {
+    for (const action of ["close", "warn", "unmark"]) {
+      const seed = snapshot();
+      if (action === "warn") seed.comments = [];
+      if (action === "unmark") seed.comments.push(comment(999, "response", RECENT, human));
+      const h = harness(seed);
+      const app = h.options.github;
+      const writer = { rest: { issues: { ...app.rest.issues }, pulls: { ...app.rest.pulls } } };
+      const checks = {
+        rest: { checks: app.rest.checks, rateLimit: app.rest.rateLimit },
+        graphql: app.graphql,
+      };
+      const denied = async () => {
+        throw new Error("wrong client");
+      };
+      for (const method of ["createComment", "addLabels", "removeLabel"])
+        app.rest.issues[method] = denied;
+      app.rest.pulls.update = denied;
+      app.rest.checks = { listForRef: denied };
+      app.graphql = denied;
+      await runStalePullRequests({
+        ...h.options,
+        checksGithub: checks,
+        mutationGithub: writer,
+        dryRun: false,
+      });
+      assert.deepEqual(
+        h.writes,
+        action === "close"
+          ? ["close-comment", "close"]
+          : action === "warn"
+            ? ["warning", "label"]
+            : ["unlabel"],
+      );
+    }
+  });
+
+  it("reserves terminal reads before effects at the shared 4500-request boundary", async () => {
+    const h = harness();
+    const states = new Map(
+      Array.from({ length: 447 }, (_, index) => [index + 1, snapshot(index + 1).pr]),
+    );
+    let active;
+    h.options.github.rest.pulls.get = async ({ pull_number }) => {
+      active = pull_number;
+      return { data: structuredClone(states.get(pull_number)) };
+    };
+    h.options.github.rest.pulls.update = async ({ pull_number }) => {
+      h.writes.push("close");
+      const pr = states.get(pull_number);
+      pr.state = "closed";
+      return { data: structuredClone(pr) };
+    };
+    h.options.github.rest.checks.listForRef = async () => ({
+      data: {
+        check_runs:
+          active < 447
+            ? [
+                {
+                  head_sha: HEAD,
+                  name: "openclaw/ci-gate",
+                  status: "completed",
+                  conclusion: "success",
+                },
+              ]
+            : [],
+      },
+    });
+    h.options.github.rest.issues.listComments = async ({ issue_number, page }) => {
+      const comments =
+        issue_number === 1
+          ? Array.from({ length: 700 }, (_, id) => comment(id + 1, warningBody))
+          : h.state.comments;
+      return { data: structuredClone(comments.slice((page - 1) * 100, page * 100)) };
+    };
+    const result = await runStalePullRequests({
+      ...h.options,
+      targets: [...states.keys()],
+      dryRun: false,
+    });
+    assert.equal(result.exhausted, true);
+    assert.equal(result.considered, 446);
+    assert.equal(result.closed, 0);
+    assert.ok(result.requests < 4500);
+    assert.deepEqual(h.writes, []);
+    const retry = await runStalePullRequests({ ...h.options, targets: [447], dryRun: false });
+    assert.equal(retry.closed, 1);
+    assert.deepEqual(h.writes, ["close-comment", "close"]);
+  });
+
+  it("reports a confirmed close when terminal verification fails instead of forgetting it", async () => {
+    const h = harness();
+    const logs = [];
+    h.options.core.info = (line) => logs.push(line);
+    h.options.github.rest.issues.get = async () => {
+      throw new Error("read unavailable");
+    };
+    await assert.rejects(
+      runStalePullRequests({ ...h.options, dryRun: false }),
+      /Unfinished PR mutation.*"closed":true/,
+    );
+    assert.ok(
+      logs.some((line) => line.includes('"closed":1') && line.includes('"unfinished":true')),
+    );
+    assert.deepEqual(h.writes, ["close-comment", "close"]);
+  });
+
+  it("stops on actual token quota with no effects and no silent credential substitution", async () => {
+    const h = harness();
+    let calls = 0;
+    h.options.github.rest.rateLimit.get = async () => ({
+      data: {
+        resources: {
+          core: { remaining: ++calls === 1 ? 15000 : 12, reset: 1800000000 },
+          graphql: { remaining: 1000, reset: 1800000000 },
+        },
+      },
+    });
+    const result = await runStalePullRequests({ ...h.options, dryRun: false });
+    assert.equal(result.exhausted, true);
+    assert.equal(result.closed, 0);
+    assert.deepEqual(h.writes, []);
+    await assert.rejects(
+      runStalePullRequests({ ...h.options, mutationGithub: undefined, dryRun: false }),
+      /Explicit app reader/,
+    );
+  });
+
+  it("keeps the generic issue backfill inside the remaining shared cap", async () => {
+    const h = harness();
+    const result = await runStalePullRequests({ ...h.options, dryRun: false, maxClosures: 2 });
+    assert.equal(result.remainingClosures, 1);
+    const yaml = await readFile(
+      new URL("../../.github/workflows/stale.yml", import.meta.url),
+      "utf8",
+    );
+    assert.match(yaml, /needs: stale-pull-requests/);
+    assert.match(
+      yaml,
+      /needs\.stale-pull-requests\.result == 'success' \|\| needs\.stale-pull-requests\.result == 'skipped'/,
+    );
+    assert.match(yaml, /MAX_CLOSURES:.*outputs\.remaining-closures/);
+    const zero = await runStalePullRequests({ ...h.options, maxClosures: 0 });
+    assert.equal(zero.remainingClosures, 0);
+  });
+  it("closes an expired lost-label warning despite later bot comment and rating churn", async () => {
+    const seed = snapshot();
+    assert.ok(
+      Date.parse(seed.pr.updated_at) > NOW - 7 * 86_400_000,
+      "old raw updated_at close gate rejects this fixture",
+    );
+    seed.pr.labels = [];
+    seed.comments.push(
+      comment(2, "review refreshed", RECENT, { id: 274271284, type: "Bot", login: "reviewer" }),
+    );
+    const h = harness(seed);
+    const dry = await runStalePullRequests(h.options);
+    assert.partialDeepStrictEqual(dry.decisions[0], {
+      action: "close",
+      reason: "expired-warning",
+      witness: "workflow-run:900",
+    });
+    assert.deepEqual(h.writes, []);
+    const live = await runStalePullRequests({ ...h.options, dryRun: false });
+    assert.equal(live.closed, 1);
+    assert.deepEqual(h.writes, ["close-comment", "close"]);
+    assert.equal(
+      h.state.comments.at(-1)?.body,
+      "Closing due to inactivity.\nIf you believe this PR should be revived, post in #clawtributors on Discord to talk to a maintainer.\nThat channel is the escape hatch for high-quality PRs that get auto-closed.\n",
+    );
+  });
+
+  for (const kind of [
+    "comment",
+    "comment-edit",
+    "review",
+    "inline-edit",
+    "body-edit",
+    "force-push",
+  ])
+    it(`returns recent ${kind} activity to the 14-day inactivity gate`, () => {
+      const seed = snapshot();
+      if (kind.startsWith("comment"))
+        seed.comments.push({ ...comment(2, "response", OLD, human), updated_at: RECENT });
+      if (kind === "review")
+        seed.reviews.push({
+          id: 3,
+          author: { __typename: "User" },
+          submittedAt: OLD,
+          updatedAt: RECENT,
+        });
+      if (kind === "inline-edit")
+        seed.reviewComments.push({ ...comment(4, "inline", OLD, human), updated_at: RECENT });
+      if (kind === "body-edit") {
+        seed.lastEditedAt = RECENT;
+        seed.editor = { __typename: "User" };
+      }
+      if (kind === "force-push")
+        seed.timeline.push({
+          event: "head_ref_force_pushed",
+          created_at: RECENT,
+          actor: { ...human, type: "Bot" },
+        });
+      assert.partialDeepStrictEqual(evaluatePullRequest(seed, NOW), {
+        action: "unmark",
+        reason: "human-or-head-activity",
+        eligibleAt: "2026-10-28T10:00:00.000Z",
+      });
+    });
+
+  for (const hasWarning of [false, true])
+    it(`waits 14 idle days after an ordinary push, prior warning=${hasWarning}`, () => {
+      const seed = snapshot();
+      seed.comments = hasWarning
+        ? [comment(1, `${warningBody}\n\n<!-- barnacle-stale-pr:v1 head=${"b".repeat(40)} -->`)]
+        : [];
+      seed.workflowRuns[0].created_at = RECENT;
+      assert.partialDeepStrictEqual(evaluatePullRequest(seed, NOW), {
+        action: hasWarning ? "unmark" : "preserve",
+        eligibleAt: "2026-10-28T10:00:00.000Z",
+      });
+      assert.equal(evaluatePullRequest(seed, Date.parse("2026-10-28T10:00:00Z")).action, "warn");
+    });
+
+  it("does not accept unrelated SHA existence or embedded historical review dates", () => {
+    const seed = snapshot();
+    seed.workflowRuns[0].head_repository.id = 99;
+    assert.partialDeepStrictEqual(evaluatePullRequest(seed, NOW), {
+      action: "preserve",
+      reason: "unknown-legacy-head",
+    });
+    seed.comments = [];
+    assert.partialDeepStrictEqual(evaluatePullRequest(seed, NOW), {
+      action: "preserve",
+      reason: "unknown-head-timing",
+    });
+  });
+
+  it("records actual head in a new warning and preserves the real seven-day grace", async () => {
+    const seed = snapshot();
+    seed.comments = [];
+    seed.pr.labels = [];
+    const h = harness(seed);
+    await runStalePullRequests({ ...h.options, dryRun: false });
+    assert.deepEqual(h.writes, ["warning", "label"]);
+    assert.ok(h.state.comments[0].body.includes(`<!-- barnacle-stale-pr:v1 head=${HEAD} -->`));
+    assert.partialDeepStrictEqual(evaluatePullRequest(h.state, NOW + 6 * 86_400_000), {
+      action: "preserve",
+      reason: "warning-grace",
+    });
+    assert.equal(evaluatePullRequest(h.state, NOW + 7 * 86_400_000).action, "close");
+  });
+
+  it("keeps the assigned 27-day creation gate distinct from human inactivity", () => {
+    const seed = snapshot();
+    seed.comments = [];
+    seed.pr.assignees = [human];
+    seed.pr.created_at = "2026-09-17T12:00:00Z";
+    seed.workflowRuns[0].created_at = RECENT;
+    assert.equal(evaluatePullRequest(seed, NOW).action, "warn");
+    seed.ownershipProtection = "maintainer-ownership";
+    assert.equal(evaluatePullRequest(seed, NOW).action, "preserve");
+  });
+
+  for (const name of [
+    "security",
+    "P1",
+    "P0",
+    "no-stale",
+    "bad-barnacle",
+    "maintainer",
+    "status: 👀 ready for maintainer look",
+  ])
+    it(`preserves ${name}`, () => {
+      const seed = snapshot();
+      seed.pr.labels.push({ name });
+      assert.partialDeepStrictEqual(evaluatePullRequest(seed, NOW), {
+        action: "preserve",
+        reason: "protected-label",
+      });
+    });
+
+  it("finds an older exact-head required gate on the second latest-check page", async () => {
+    const seed = snapshot();
+    seed.runs = Array.from({ length: 100 }, (_, id) => ({
+      id,
+      head_sha: HEAD,
+      name: "metadata",
+      status: "completed",
+      conclusion: "failure",
+    }));
+    seed.runs.push({
+      head_sha: HEAD,
+      name: "openclaw/ci-gate",
+      status: "completed",
+      conclusion: "success",
+    });
+    const h = harness(seed);
+    const result = await runStalePullRequests({ ...h.options, dryRun: false });
+    assert.equal(result.decisions[0].reason, "executed-ci-proof");
+    assert.deepEqual(h.writes, []);
+    assert.ok(h.pages.some((item) => isDeepStrictEqual(item, { endpoint: "checks", page: 2 })));
+  });
+
+  it("does not mistake successful metadata or skipped product jobs for proof", () => {
+    const seed = snapshot();
+    seed.runs = [
+      { head_sha: HEAD, name: "plan", status: "completed", conclusion: "success" },
+      { head_sha: HEAD, name: "tests", status: "completed", conclusion: "skipped" },
+    ];
+    assert.equal(evaluatePullRequest(seed, NOW).action, "close");
+  });
+
+  for (const name of [
+    "CI gate",
+    "ci-gate",
+    "checks-node-core",
+    "check",
+    "build-smoke",
+    "build-artifacts",
+  ])
+    it(`preserves executed historical ${name} proof`, () => {
+      const seed = snapshot();
+      seed.checkRollup = "SUCCESS";
+      seed.runs = [{ head_sha: HEAD, name, status: "completed", conclusion: "success" }];
+      assert.equal(evaluatePullRequest(seed, NOW).reason, "executed-ci-proof");
+    });
+
+  it("uses the latest status for each named context", () => {
+    const seed = snapshot();
+    seed.statuses = [
+      { context: "openclaw/ci-gate", state: "failure" },
+      { context: "openclaw/ci-gate", state: "success" },
+    ];
+    assert.equal(evaluatePullRequest(seed, NOW).action, "close");
+    seed.statuses.reverse();
+    assert.equal(evaluatePullRequest(seed, NOW).reason, "executed-ci-proof");
+  });
+
+  it("distinguishes trusted security markers from ordinary blocked verdicts", () => {
+    const seed = snapshot();
+    const review = {
+      ...comment(
+        8,
+        `<!-- clawsweeper-verdict:needs-human item=10 sha=${HEAD} -->\n<!-- clawsweeper-review-state:blocked item=10 sha=${HEAD} -->`,
+        OLD,
+        { id: 274271284, type: "Bot", login: "reviewer" },
+      ),
+      performed_via_github_app: { id: 3306130 },
+    };
+    seed.comments.push(review);
+    assert.equal(evaluatePullRequest(seed, NOW).action, "close");
+    review.body += `\n<!-- clawsweeper-security:security-sensitive item=10 sha=${HEAD} confidence=high -->`;
+    assert.equal(evaluatePullRequest(seed, NOW).reason, "security-review-required");
+    review.body = review.body.replace(
+      `security-sensitive item=10 sha=${HEAD}`,
+      `security-sensitive item=10 sha=${"b".repeat(40)}`,
+    );
+    assert.equal(evaluatePullRequest(seed, NOW).reason, "unknown-security-head");
+    review.body = review.body.replace("security-sensitive item=10", "security-sensitive item=11");
+    assert.equal(evaluatePullRequest(seed, NOW).action, "close");
+  });
+
+  for (const kind of ["human", "head", "assignment"])
+    it(`revalidates a ${kind} race after posting the close comment`, async () => {
+      const h = harness(snapshot(), (state) => {
+        if (kind === "human") state.comments.push(comment(999, "working on this", RECENT, human));
+        if (kind === "head") state.pr.head.sha = "b".repeat(40);
+        if (kind === "assignment") state.ownershipProtection = "maintainer-ownership";
+      });
+      if (kind === "assignment")
+        h.options.github.rest.repos.getCollaboratorPermissionLevel = async () => ({
+          data: { permission: h.state.ownershipProtection ? "write" : "read", role_name: "read" },
+        });
+      const result = await runStalePullRequests({ ...h.options, dryRun: false });
+      assert.deepEqual(h.writes, ["close-comment"]);
+      assert.equal(result.closed, 0);
+    });
+
+  it("preserves incomplete filtered workflow history", async () => {
+    const h = harness();
+    h.options.github.rest.actions.listWorkflowRunsForRepo = async () => ({
+      data: { workflow_runs: [], total_count: 1001 },
+    });
+    const result = await runStalePullRequests({ ...h.options, dryRun: false });
+    assert.equal(result.decisions[0].reason, "incomplete-workflow-history");
+    assert.deepEqual(h.writes, []);
+  });
+
+  it("reuses a verified interrupted closure comment without duplicating it", async () => {
+    const seed = snapshot();
+    seed.comments.push(comment(99, closeMessage, RECENT));
+    const h = harness(seed);
+    await runStalePullRequests({ ...h.options, dryRun: false });
+    assert.deepEqual(h.writes, ["close"]);
+  });
+
+  it("preserves a security exemption arriving after its close comment", async () => {
+    const h = harness(snapshot(), (state) => state.pr.labels.push({ name: "security" }));
+    const result = await runStalePullRequests({ ...h.options, dryRun: false });
+    assert.deepEqual(h.writes, ["close-comment"]);
+    assert.equal(result.closed, 0);
+    assert.equal(result.decisions[0].reason, "changed-before-close");
+  });
+
+  it("honors an explicit zero closure cap", async () => {
+    const h = harness();
+    await runStalePullRequests({ ...h.options, dryRun: false, maxClosures: 0 });
+    assert.deepEqual(h.writes, []);
+  });
+
+  it("paginates human comments and inline edits beyond the first page", async () => {
+    const seed = snapshot();
+    seed.comments.push(...Array.from({ length: 100 }, (_, id) => comment(id + 2, "bot work", OLD)));
+    seed.comments.push(comment(102, "author response", RECENT, human));
+    seed.reviewComments = Array.from({ length: 100 }, (_, id) =>
+      comment(id + 200, "bot review", OLD),
+    );
+    seed.reviewComments.push(comment(301, "edited response", RECENT, human));
+    const h = harness(seed);
+    const result = await runStalePullRequests({ ...h.options, dryRun: false });
+    assert.equal(result.closed, 0);
+    assert.deepEqual(h.writes, ["unlabel"]);
+    assert.ok(h.pages.some((item) => item.endpoint === "comments" && item.page === 2));
+    assert.ok(h.pages.some((item) => item.endpoint === "review-comments" && item.page === 2));
+  });
+
+  it("does not classify a User as automation from its login", () => {
+    const seed = snapshot();
+    seed.comments.push(
+      comment(2, "response", RECENT, { id: 999, type: "User", login: "clawsweeper" }),
+    );
+    assert.equal(evaluatePullRequest(seed, NOW).action, "unmark");
+  });
+
+  it("advances live checkpoints across its own closures and resets at the end", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "stale-pr-test-"));
+    try {
+      const cursorPath = join(dir, "cursor");
+      const h = harness();
+      const pulls = [10, 11, 12].map((number) => snapshot(number).pr);
+      h.options.github.rest.pulls.list = async ({ page }) => ({
+        data: page === 1 ? structuredClone(pulls.filter((pr) => pr.state === "open")) : [],
+      });
+      h.options.github.rest.pulls.get = async ({ pull_number }) => ({
+        data: structuredClone(pulls.find((pr) => pr.number === pull_number)),
+      });
+      h.options.github.rest.pulls.update = async ({ pull_number }) => {
+        pulls.find((pr) => pr.number === pull_number).state = "closed";
+        return { data: structuredClone(pulls.find((pr) => pr.number === pull_number)) };
+      };
+      for (const number of [10, 11, 12]) {
+        const result = await runStalePullRequests({
+          ...h.options,
+          targets: [],
+          dryRun: false,
+          detailLimit: 1,
+          cursorPath,
+        });
+        assert.equal(result.decisions[0].number, number);
+        assert.equal(result.closed, 1);
+      }
+      assert.deepEqual(JSON.parse(await readFile(cursorPath, "utf8")), { lastNumber: null });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("resumes by identity after earlier closures and resets a completed cycle", async () => {
+    const first = Array.from({ length: 205 }, (_, index) => ({ number: index + 1 }));
+    const a = selectScanSlice(first, null, 100);
+    assert.equal(a.next, 100);
+    const changed = first.filter((item) => item.number > 100);
+    changed.push({ number: 206 });
+    const b = selectScanSlice(changed, a.next, 100);
+    assert.equal(b.selected[0].number, 101);
+    assert.equal(b.next, 200);
+    const c = selectScanSlice(changed, b.next, 100);
+    assert.deepEqual(
+      c.selected.map((item) => item.number),
+      [201, 202, 203, 204, 205, 206],
+    );
+    assert.equal(c.next, null);
+    assert.equal(selectScanSlice([{ number: 3 }, ...changed], c.next, 100).selected[0].number, 3);
+    const dir = await mkdtemp(join(tmpdir(), "stale-pr-test-"));
+    try {
+      const cursorPath = join(dir, "cursor");
+      await writeFile(cursorPath, '{"lastNumber":123}\n');
+      const h = harness();
+      await runStalePullRequests({ ...h.options, cursorPath });
+      assert.equal(await readFile(cursorPath, "utf8"), '{"lastNumber":123}\n');
+      await runStalePullRequests({ ...h.options, dryRun: false, cursorPath });
+      assert.equal(await readFile(cursorPath, "utf8"), '{"lastNumber":123}\n');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
