@@ -47,12 +47,10 @@ import { ChatPaneReplyNavigation } from "./chat-pane-reply-navigation.ts";
 import {
   CHAT_HISTORY_PREFETCH_EDGE_PX,
   CHAT_HISTORY_INTENT_IDLE_MS,
-  CHAT_HISTORY_TOUCH_INTENT_PX,
-  CHAT_HISTORY_UPWARD_KEYS,
   clearPaneSessionHandoff,
   preparePaneSessionHandoff,
 } from "./chat-pane-shared.ts";
-import { isTranscriptScrollKey } from "./chat-scroll-input.ts";
+import { TranscriptHistoryInput } from "./chat-scroll-input.ts";
 import type { ChatState } from "./chat-state-contract.ts";
 import { refreshPageChat } from "./chat-state-refresh.ts";
 import { resolveChatAgentId } from "./chat-state-route.ts";
@@ -80,6 +78,7 @@ export abstract class ChatPaneHistory extends ChatPaneReplyNavigation {
   private activeCatalogContinuation: symbol | null = null;
   private activeOlderLoad: Promise<boolean> | null = null;
   private historyViewportFillPages = 0;
+  private readonly historyInput = new TranscriptHistoryInput();
   // Staged prefetch: after a consumed older page, the next page is fetched in
   // the background and parked here, so the following boundary crossing
   // prepends without a visible round trip. One slot per pane; the claim is
@@ -192,7 +191,7 @@ export abstract class ChatPaneHistory extends ChatPaneReplyNavigation {
     this.loadingOlder = false;
     this.historyObserverArmed = false;
     this.historyAutoLoadBlocked = false;
-    this.historyTouchY = null;
+    this.historyInput.reset();
     if (this.historyIntentTimer !== null) {
       window.clearTimeout(this.historyIntentTimer);
       this.historyIntentTimer = null;
@@ -359,29 +358,7 @@ export abstract class ChatPaneHistory extends ChatPaneReplyNavigation {
 
   protected handleTranscriptHistoryIntent(event: Event): void {
     const root = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
-    let upward =
-      (event instanceof WheelEvent && event.deltaY < 0) ||
-      (event instanceof KeyboardEvent &&
-        CHAT_HISTORY_UPWARD_KEYS.has(event.key) &&
-        isTranscriptScrollKey(event));
-    if (typeof TouchEvent !== "undefined" && event instanceof TouchEvent) {
-      const touchY = event.touches[0]?.clientY ?? null;
-      if (event.type === "touchstart") {
-        this.historyTouchY = touchY;
-        return;
-      }
-      if (event.type === "touchend" || event.type === "touchcancel") {
-        this.historyTouchY = null;
-        return;
-      }
-      const previousTouchY = this.historyTouchY;
-      if (touchY !== null && previousTouchY !== null) {
-        upward = touchY - previousTouchY >= CHAT_HISTORY_TOUCH_INTENT_PX;
-        if (upward || touchY < previousTouchY) {
-          this.historyTouchY = touchY;
-        }
-      }
-    }
+    const upward = this.historyInput.isUpward(event);
     if (
       !root ||
       !this.presented ||
