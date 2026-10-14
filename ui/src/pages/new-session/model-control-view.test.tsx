@@ -50,7 +50,7 @@ it("keeps one mounted model view live without depending on draft revisions", asy
       expect(trigger()?.getAttribute("data-chat-select-value")).toBe("openai/fixture-alternative"),
     );
     const current = control.renderProps(untrack(options));
-    current.onThinkingSelect?.("high");
+    current.onThinkingSelect?.("high", current.sessionKey);
     await waitForFast(() =>
       expect(
         view.container
@@ -58,7 +58,7 @@ it("keeps one mounted model view live without depending on draft revisions", asy
           ?.getAttribute("data-chat-thinking-value"),
       ).toBe("high"),
     );
-    first.context.gateway.snapshot.phase = "disconnected";
+    first.context.gateway.snapshot.phase = "offline";
     first.publish("gateway");
     await waitForFast(() => expect(trigger()?.getAttribute("aria-disabled")).toBe("true"));
     first.context.gateway.snapshot.phase = "connected";
