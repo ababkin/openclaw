@@ -185,7 +185,7 @@ vi.mock("../commands/daemon-runtime.js", () => ({
   DEFAULT_GATEWAY_DAEMON_RUNTIME: "node",
   GATEWAY_DAEMON_RUNTIME_OPTIONS: [
     { value: "node", label: "Node" },
-    { value: "bun", label: "Bun 1.4+" },
+    { value: "bun", label: "Bun 1.4.3+" },
   ],
 }));
 

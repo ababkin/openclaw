@@ -72,7 +72,9 @@ describe("auditGatewayServiceConfig runtime", () => {
       expect(result.issues).toContainEqual(
         expect.objectContaining({
           code: codes.gatewayRuntimeBun,
-          message: expect.stringContaining("Bun 1.4+ with WAL-reset-safe node:sqlite is required"),
+          message: expect.stringContaining(
+            "Bun 1.4.3+ with WAL-reset-safe node:sqlite is required",
+          ),
           detail: sqliteSelectionError
             ? `/opt/homebrew/bin/bun: ${sqliteSelectionError}`
             : "/opt/homebrew/bin/bun",

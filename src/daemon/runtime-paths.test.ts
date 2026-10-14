@@ -341,9 +341,9 @@ describe("resolvePreferredBunPath", () => {
     }
   });
 
-  it("uses the stable BUN_INSTALL executable when Bun 1.4 provides WAL-safe node:sqlite", async () => {
+  it("uses the stable BUN_INSTALL executable when Bun 1.4.3 provides WAL-safe node:sqlite", async () => {
     const bunPath = "/home/test/.bun/bin/bun";
-    const execFile = vi.fn().mockResolvedValue(bunRuntime("1.4.0"));
+    const execFile = vi.fn().mockResolvedValue(bunRuntime("1.4.3"));
 
     const result = await resolvePreferredBunPath({
       env: { BUN_INSTALL: "/home/test/.bun", HOME: "/home/test" },
@@ -363,7 +363,7 @@ describe("resolvePreferredBunPath", () => {
 
   it("resolves the default Windows Bun executable", async () => {
     const bunPath = "C:\\Users\\test\\.bun\\bin\\bun.exe";
-    const execFile = vi.fn().mockResolvedValue(bunRuntime("1.4.0"));
+    const execFile = vi.fn().mockResolvedValue(bunRuntime("1.4.3"));
 
     const result = await resolvePreferredBunPath({
       env: { USERPROFILE: "C:\\Users\\test" },
