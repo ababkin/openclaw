@@ -6,7 +6,6 @@ import {
   requireNativeDatabaseFile,
 } from "../infra/database-engine/physical-facts.js";
 import { assertPostgresCatalog } from "../infra/database-engine/postgres-catalog.js";
-import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
 import { isPostgresSqlConnection, type PostgresSqlConnection } from "../infra/sql-connection.js";
 import {
   invalidateLocalSqliteSchemaAdmissions,
@@ -17,6 +16,7 @@ import {
   throwSqliteLifecycleErrors,
 } from "../infra/sqlite-lifecycle-errors.js";
 import { stageSqliteTransactionState } from "../infra/sqlite-post-commit.js";
+import { captureSqliteSchemaFacts } from "../infra/sqlite-schema-admission.js";
 import { getAdmittedSqliteSchemaFacts } from "../infra/sqlite-schema-facts.js";
 import { VERSION } from "../version.js";
 import {
@@ -28,7 +28,6 @@ import { openClawStateDatabaseCache } from "./openclaw-state-db-cache.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "./openclaw-state-db-contract.js";
 import { openTrackedStateDatabase } from "./openclaw-state-db-handle.js";
 import { admitStateSchemaFacts } from "./openclaw-state-db-schema-version.js";
-import type { DB } from "./openclaw-state-db.generated.js";
 import { statePostgresRuntime as runtime } from "./postgres-schema.generated/runtime.js";
 
 const recovery =
@@ -53,10 +52,8 @@ export function assertStateFileSnapshotAllowed(): void {
 }
 
 export function inspectStateSqlite(db: Parameters<typeof openEngineStore>[0]["anchor"]) {
-  const facts = getAdmittedSqliteSchemaFacts(db);
-  if (!facts) {
-    throw new Error("State engine selection requires admitted SQLite catalog facts");
-  }
+  // Dynamic authorizers cannot reuse admitted facts; capture through their current policy.
+  const facts = getAdmittedSqliteSchemaFacts(db) ?? captureSqliteSchemaFacts(db);
   return {
     hasEngineAnchor: facts.tables.has("openclaw_engine_anchor"),
     hasExistingData: [...facts.tables, ...facts.views, ...facts.triggers.keys()].some(
@@ -87,44 +84,26 @@ export function admitStatePostgres(db: PostgresSqlConnection, fresh: boolean): v
     ),
     runtime.expectedCatalog.filter((fact) => !absent.has(fact.table)),
   );
-  const kysely = getNodeSqliteKysely<Pick<DB, "schema_meta" | "config_machine_state">>(db);
   if (fresh) {
     const now = Date.now();
-    executeSqliteQuerySync(
-      db,
-      kysely.insertInto("schema_meta").values({
-        meta_key: "primary",
-        role: "global",
-        schema_version: OPENCLAW_STATE_SCHEMA_VERSION,
-        agent_id: null,
-        app_version: VERSION,
-        created_at: now,
-        updated_at: now,
-      }),
-    );
-    executeSqliteQuerySync(
-      db,
-      kysely.insertInto("config_machine_state").values({
-        state_key: "state.schema.contentVersion",
-        value_json: String(OPENCLAW_STATE_SCHEMA_VERSION),
-        updated_at_ms: now,
-      }),
-    );
+    db.prepare(
+      `INSERT INTO schema_meta
+        (meta_key, role, schema_version, agent_id, app_version, created_at, updated_at)
+        VALUES ('primary', 'global', ?, NULL, ?, ?, ?)`,
+    ).run(OPENCLAW_STATE_SCHEMA_VERSION, VERSION, now, now);
+    db.prepare(
+      `INSERT INTO config_machine_state (state_key, value_json, updated_at_ms)
+        VALUES ('state.schema.contentVersion', ?, ?)`,
+    ).run(String(OPENCLAW_STATE_SCHEMA_VERSION), now);
   }
-  const meta = executeSqliteQuerySync(
-    db,
-    kysely
-      .selectFrom("schema_meta")
-      .select(["schema_version", "role", "agent_id"])
-      .where("meta_key", "=", "primary"),
-  ).rows[0];
-  const content = executeSqliteQuerySync(
-    db,
-    kysely
-      .selectFrom("config_machine_state")
-      .select("value_json")
-      .where("state_key", "=", "state.schema.contentVersion"),
-  ).rows[0];
+  const meta = db
+    .prepare("SELECT schema_version, role, agent_id FROM schema_meta WHERE meta_key = 'primary'")
+    .get();
+  const content = db
+    .prepare(
+      "SELECT value_json FROM config_machine_state WHERE state_key = 'state.schema.contentVersion'",
+    )
+    .get();
   if (
     meta?.schema_version !== OPENCLAW_STATE_SCHEMA_VERSION ||
     meta.role !== "global" ||
