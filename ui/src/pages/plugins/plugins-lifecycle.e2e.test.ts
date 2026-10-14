@@ -183,9 +183,11 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
         controlUiTabs: [],
       });
       if (inspection === "before") {
+        const configReads = (await gateway.getRequests("config.get")).length;
         await gateway.deferNext("plugins.inspect");
         await gateway.emitGatewayEvent("plugins.changed", { generation: 17 });
         await gateway.waitForRequest("plugins.inspect", { after: inspectionReads });
+        await gateway.waitForRequest("config.get", { after: configReads });
       }
       const removalErrors = await page.evaluateHandle(() => {
         const errors = new Set<string>();
@@ -213,7 +215,6 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
         "Removed all plugin entries owned by the calendar-plus package.",
       ] as const;
       const refreshError = "Configuration reload failed after removal.";
-      await gateway.deferNext("config.get");
       const removing = page.getByRole("button", { name: "Uninstall Calendar Plus", exact: true });
       await expect.poll(() => removing.getAttribute("aria-busy")).toBe("true");
       expect(await removing.locator(".btn__spinner").count()).toBe(1);
@@ -227,18 +228,22 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
         await gateway.rejectDeferred("plugins.inspect", missingPlugin);
       } else {
         const listReads = (await gateway.getRequests("plugins.list")).length;
+        const configReads = (await gateway.getRequests("config.get")).length;
         await gateway.setMethodResponse("plugins.inspect", { __mockError: missingPlugin });
         await gateway.emitGatewayEvent("plugins.changed", { generation: 17 });
         await gateway.waitForRequest("plugins.list", { after: listReads });
+        await gateway.waitForRequest("config.get", { after: configReads });
       }
       await captureScreenshot(page, `lifecycle-uninstall-inspection-${inspection}.png`);
       await gateway.setMethodResponse("plugins.list", initialInventory);
+      const refreshReads = await gateway.deferNext("config.get");
       await gateway.resolveDeferred("plugins.uninstall", {
         ok: true,
         pluginId: "calendar-plus",
         removed: ["config entry", "install record"],
         warnings: withWarnings ? warnings : [],
       });
+      await gateway.waitForRequest("config.get", { after: refreshReads });
       if (withWarnings) {
         await gateway.rejectDeferred("config.get", {
           code: "UNAVAILABLE",
