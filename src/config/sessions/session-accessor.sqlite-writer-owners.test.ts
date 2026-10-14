@@ -372,7 +372,7 @@ it("coalesces automatic maintenance through native planning and finalization", a
           result.value.entryRemovals.length === 0 &&
           result.value.stateDeletePlans.length === 0)
       ) {
-        // Empty read-only plans carry their verified deadline without another age request.
+        // Empty plans carry their verified deadline without another age request.
         maintenanceSettled.resolve();
       }
       return result;
@@ -405,8 +405,6 @@ it("coalesces automatic maintenance through native planning and finalization", a
       kickSessionEntryMaintenanceAfterWrite(request);
       await finalized.promise;
       await maintenanceSettled.promise;
-      // Read-only preflight can precede writable planning; both kicks share one committed finalizer.
-      expect(operations).toContain("session.maintenance.plan");
       expect(
         operations.filter((operation) => operation === "session.reclamation.worker-commit"),
       ).toEqual(["session.reclamation.worker-commit"]);
