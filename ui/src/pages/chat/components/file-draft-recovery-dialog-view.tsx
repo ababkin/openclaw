@@ -12,7 +12,7 @@ export function FileDraftRecoveryDialog(props: {
   settled: () => boolean;
   finish: () => void;
 }) {
-  const [remaining, setRemaining] = createSignal([...props.drafts]);
+  const [remaining, setRemaining] = createSignal(untrack(() => [...props.drafts]));
   const [error, setError] = createSignal("");
   const [copied, setCopied] = createSignal<FileDraft>();
   const current = (draft: FileDraft) => {
@@ -25,11 +25,21 @@ export function FileDraftRecoveryDialog(props: {
     }
     return true;
   };
+  const copyDraft = async (entry: FileDraft) => {
+    if (!current(entry)) {
+      return;
+    }
+    const ok = await copyToClipboard(entry.content, () => current(entry));
+    if (current(entry)) {
+      setCopied(ok ? entry : undefined);
+      setError(ok ? "" : t("chat.detailPanel.draftRecovery.copyFailed"));
+    }
+  };
   return (
     <openclaw-modal-dialog
       label={t("chat.detailPanel.draftRecovery.review")}
       description={t("chat.detailPanel.draftRecovery.description")}
-      onModal-cancel={props.finish}
+      onModal-cancel={() => props.finish()}
     >
       <section class="exec-approval-card exec-approval-modal-stack">
         <div class="exec-approval-header">
@@ -45,7 +55,7 @@ export function FileDraftRecoveryDialog(props: {
             return (
               <section
                 role="group"
-                style="overflow-wrap: anywhere"
+                style={{ "overflow-wrap": "anywhere" }}
                 aria-label={[
                   entry.path,
                   entry.context?.sessionTitle,
@@ -67,20 +77,7 @@ export function FileDraftRecoveryDialog(props: {
                   <textarea readonly rows="6" value={entry.content} />
                 </label>
                 <div class="exec-approval-actions">
-                  <button
-                    type="button"
-                    class="btn"
-                    onClick={async () => {
-                      if (!current(entry)) {
-                        return;
-                      }
-                      const ok = await copyToClipboard(entry.content, () => current(entry));
-                      if (current(entry)) {
-                        setCopied(ok ? entry : undefined);
-                        setError(ok ? "" : t("chat.detailPanel.draftRecovery.copyFailed"));
-                      }
-                    }}
-                  >
+                  <button type="button" class="btn" onClick={() => void copyDraft(entry)}>
                     {copied() === entry
                       ? t("common.copied")
                       : t("chat.detailPanel.draftRecovery.copy", { name: entry.name })}
@@ -120,7 +117,7 @@ export function FileDraftRecoveryDialog(props: {
         </For>
         {error() ? <p role="alert">{error()}</p> : undefined}
         <div class="exec-approval-actions">
-          <button type="button" class="btn" autofocus onClick={props.finish}>
+          <button type="button" class="btn" autofocus onClick={() => props.finish()}>
             {t("chat.detailPanel.draftRecovery.keep")}
           </button>
         </div>
