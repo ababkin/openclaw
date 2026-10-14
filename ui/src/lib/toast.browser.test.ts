@@ -25,6 +25,7 @@ async function showArchiveToast(options: Partial<ToastOptions> = {}) {
     durationMs: 60_000,
     ...options,
   });
+  await vi.dynamicImportSettled();
   await waitForSolid(() => expect(host.querySelector(".app-toast")).not.toBeNull());
   return host;
 }
@@ -58,6 +59,7 @@ describe.skipIf(!hasBrowserLayout)("toast browser layout", () => {
         onAction: action,
         durationMs: 60_000,
       });
+      await vi.dynamicImportSettled();
       await waitForSolid(() => expect(host.querySelector(".app-toast")).not.toBeNull());
       expect(host.parentElement).toBe(modal.getOverlayContainer());
       const undo = host.querySelector<HTMLButtonElement>(".app-toast__action")!;
