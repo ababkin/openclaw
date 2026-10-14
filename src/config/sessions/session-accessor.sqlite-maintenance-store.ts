@@ -88,50 +88,6 @@ export function emptySessionEntryMaintenancePlan(): SessionEntryMaintenancePlan 
   };
 }
 
-/** Only a current age fact can avoid planning; pressure and force still require a pass. */
-function canSkipSessionEntryMaintenanceInDatabase(
-  database: Pick<OpenClawAgentDatabase, "db">,
-  params: Pick<SessionEntryMaintenanceInput, "maintenance" | "forceMaintenance">,
-  entryCount: number,
-): boolean {
-  if (params.forceMaintenance) {
-    return false;
-  }
-  const ageFact = readSessionEntryMaintenanceAgeFact(database.db, params.maintenance);
-  return (
-    ageFact !== undefined &&
-    Date.now() < ageFact.next.at &&
-    !shouldRunSessionEntryMaintenance({
-      entryCount,
-      maxEntries: params.maintenance.maxEntries,
-      force: params.forceMaintenance,
-    })
-  );
-}
-
-/** A current age hint needs only the count statement to decide whether planning is needed. */
-export function readSessionMaintenanceFastPath(
-  database: Pick<OpenClawAgentDatabase, "db">,
-  params: Pick<SessionEntryMaintenanceInput, "maintenance" | "forceMaintenance">,
-): "no-op" | undefined {
-  if (params.maintenance.mode === "warn") {
-    return "no-op";
-  }
-  const ageFact = readSessionEntryMaintenanceAgeFact(database.db, params.maintenance);
-  if (params.forceMaintenance || !ageFact || Date.now() >= ageFact.next.at) {
-    return undefined;
-  }
-  const entryCount = readSessionEntryCount(database, { includeArchived: false });
-  stageSessionEntryMaintenanceAgeFact(database.db, { ...ageFact, entryCount });
-  return shouldRunSessionEntryMaintenance({
-    entryCount,
-    maxEntries: params.maintenance.maxEntries,
-    force: false,
-  })
-    ? undefined
-    : "no-op";
-}
-
 /** Inline callers already hold their transaction; workers prepare before the write transaction. */
 export function applySessionEntryMaintenanceInDatabase(
   database: OpenClawAgentDatabase,
@@ -181,11 +137,20 @@ export function prepareSessionEntryMaintenanceInDatabase(
   // Key projections and indexed age candidates keep unrelated entry payloads out
   // of automatic maintenance. Exact full entries load only for rows selected to change.
   const entryCount = readSessionEntryCount(reader, { includeArchived: false });
-  if (canSkipSessionEntryMaintenanceInDatabase(reader, params, entryCount)) {
+  const retainedAgeFact = readSessionEntryMaintenanceAgeFact(reader.db, maintenance);
+  if (
+    !params.forceMaintenance &&
+    retainedAgeFact &&
+    Date.now() < retainedAgeFact.next.at &&
+    !shouldRunSessionEntryMaintenance({ entryCount, maxEntries: maintenance.maxEntries })
+  ) {
     return {
       kind: "no-op",
       value: emptySessionEntryMaintenancePlan(),
-      apply: emptySessionEntryMaintenancePlan,
+      apply(database) {
+        stageSessionEntryMaintenanceAgeFact(database.db, { ...retainedAgeFact, entryCount });
+        return emptySessionEntryMaintenancePlan();
+      },
     };
   }
   invalidateSessionEntryMaintenanceAgeFact(reader.db);

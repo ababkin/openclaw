@@ -495,6 +495,7 @@ export async function beginSessionWorkAdmission(params: {
       return;
     }
     released = true;
+    const listeners = SESSION_WORK_RELEASE_LISTENERS.get(params.scope.trim());
     let protectionReleased = false;
     for (const identity of identities) {
       const active = ACTIVE_SESSION_WORK_ADMISSIONS.get(identity);
@@ -503,6 +504,7 @@ export async function beginSessionWorkAdmission(params: {
         ACTIVE_SESSION_WORK_ADMISSIONS.delete(identity);
       }
       if (
+        listeners?.size &&
         admission.phase === "acquired" &&
         ![...(active ?? [])].some((other) => other.phase === "acquired")
       ) {
@@ -512,7 +514,7 @@ export async function beginSessionWorkAdmission(params: {
     clearSessionWorkAdmissionHandoffs(admission);
     resolveReleased();
     if (protectionReleased) {
-      notifyListeners(SESSION_WORK_RELEASE_LISTENERS.get(params.scope.trim()) ?? [], undefined);
+      notifyListeners(listeners ?? [], undefined);
     }
   };
   const lease: SessionWorkAdmissionLease = {

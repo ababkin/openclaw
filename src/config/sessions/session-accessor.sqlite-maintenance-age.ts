@@ -162,10 +162,10 @@ export function advanceSessionEntryMaintenanceAgeFact(
   db: DatabaseSync,
   update: SessionEntryMaintenanceAgeChange,
 ): void {
-  const change = captureSessionEntryMaintenanceAgeChange(update);
   if (changeObservers.size) {
     const identity = findOpenClawAgentDatabaseIdentity({ db })?.identity;
     if (identity !== undefined && changeObservers.has(identity)) {
+      const change = captureSessionEntryMaintenanceAgeChange(update);
       const publish = () => publishSessionEntryMaintenanceAgeChanges(identity, [change]);
       if (
         !deferSqlitePostCommitPublication(sqlPublicationAnchor(db), publish) &&
@@ -175,7 +175,7 @@ export function advanceSessionEntryMaintenanceAgeFact(
       }
     }
   }
-  applySessionEntryMaintenanceAgeChange(db, change);
+  applySessionEntryMaintenanceAgeChange(db, update);
 }
 
 export function applySessionEntryMaintenanceAgeChange(

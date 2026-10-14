@@ -1,67 +1,15 @@
 import path from "node:path";
-import { expect, it, vi } from "vitest";
-import { readDatabasePathIdentitySync } from "../../infra/sqlite-worker-identity.js";
-import {
-  openOpenClawAgentDatabase,
-  runOpenClawAgentWriteTransaction,
-} from "../../state/openclaw-agent-db.js";
+import { expect, it } from "vitest";
+import { runOpenClawAgentWriteTransaction } from "../../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { writeSessionEntry } from "./session-accessor.sqlite-entry-store.js";
-import type {
-  ReclamationDatabaseOptions,
-  SessionMaintenanceReadCommand,
-  SqliteSessionReclamationPlan,
-} from "./session-accessor.sqlite-lifecycle-types.js";
-import { readSessionMaintenanceInWorker } from "./session-accessor.sqlite-maintenance-transaction.js";
+import type { SqliteSessionReclamationPlan } from "./session-accessor.sqlite-lifecycle-types.js";
 import { runSqliteSessionReclamation } from "./session-accessor.sqlite-reclamation-run.js";
 import { resolveSessionReclamationDatabaseOptions } from "./session-accessor.sqlite-reclamation.js";
 import { resolveMaintenanceConfigFromInput } from "./store-maintenance.js";
 
-it("reads warm maintenance without a transaction and observes newly committed capacity pressure", async () => {
-  await withOpenClawTestState({ scenario: "minimal" }, async ({ env }) => {
-    const options = { agentId: "main", env };
-    const database = openOpenClawAgentDatabase(options);
-    const write = (index: number) =>
-      runOpenClawAgentWriteTransaction((writer) => {
-        writeSessionEntry(writer, `agent:main:maintenance-${index}`, {
-          sessionId: `maintenance-${index}`,
-          updatedAt: Date.now(),
-        });
-      }, options);
-    write(0);
-    const plan = {
-      kind: "maintenance-plan",
-      databaseOptions: { ...options, path: database.path },
-      expectedIdentity: readDatabasePathIdentitySync(database.path),
-      input: {
-        archiveDirectory: path.join(path.dirname(database.path), "archives"),
-        storePath: database.path,
-        maintenance: resolveMaintenanceConfigFromInput({
-          mode: "enforce",
-          maxEntries: 1,
-          pruneAfter: "1d",
-        }),
-        preservation: null,
-      },
-    } satisfies SessionMaintenanceReadCommand & { databaseOptions: ReclamationDatabaseOptions };
-    expect(readSessionMaintenanceInWorker(plan, database).kind).toBe("maintenance-plan");
-    const exec = vi.spyOn(database.db, "exec");
-    try {
-      expect(readSessionMaintenanceInWorker(plan, database).kind).toBe("maintenance-plan");
-      expect(exec.mock.calls).toEqual([]);
-      write(1);
-      exec.mockClear();
-      expect(readSessionMaintenanceInWorker(plan, database)).toEqual({
-        kind: "maintenance-preservation-required",
-      });
-    } finally {
-      exec.mockRestore();
-    }
-  });
-});
-
 it.each(["durable", "warm durable", "direct active", "runtime"] as const)(
-  "resolves %s protected capacity with only the preservation facts it needs",
+  "preserves %s capacity rows through prepared maintenance",
   async (protection) => {
     await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
       const options = { agentId: "main", env: state.env };
@@ -92,13 +40,16 @@ it.each(["durable", "warm durable", "direct active", "runtime"] as const)(
             maxEntries: 1,
             pruneAfter: "1d",
           }),
-          preservation: null,
+          preservation: {
+            providerKeys: protection === "runtime" ? [...keys] : [],
+            workIdentities: [],
+            lifecycleIdentities: [],
+          },
         },
       } satisfies SqliteSessionReclamationPlan;
       if (protection === "warm durable") {
         await expect(runSqliteSessionReclamation({ plan })).resolves.toMatchObject({
           kind: "maintenance-plan",
-          readOnlyInput: expect.any(Object),
           ageFact: { entryCount: 1 },
         });
         write([1]);
@@ -106,7 +57,6 @@ it.each(["durable", "warm durable", "direct active", "runtime"] as const)(
       if (protection === "durable" || protection === "warm durable") {
         await expect(runSqliteSessionReclamation({ plan })).resolves.toMatchObject({
           kind: "maintenance-plan",
-          readOnlyInput: expect.any(Object),
           value: { archived: 0, durableNoCandidates: true },
         });
       } else {
@@ -114,7 +64,6 @@ it.each(["durable", "warm durable", "direct active", "runtime"] as const)(
           const result = await runSqliteSessionReclamation({ plan });
           expect(result).toMatchObject({
             kind: "maintenance-plan",
-            readOnlyInput: expect.any(Object),
             value: { archived: 0 },
           });
           if (result.kind === "maintenance-plan") {
@@ -122,22 +71,7 @@ it.each(["durable", "warm durable", "direct active", "runtime"] as const)(
           }
           plan.input.activeSessionKeys = [];
         }
-        await expect(runSqliteSessionReclamation({ plan })).resolves.toEqual({
-          kind: "maintenance-preservation-required",
-        });
-        const result = await runSqliteSessionReclamation({
-          plan: {
-            ...plan,
-            input: {
-              ...plan.input,
-              preservation: {
-                providerKeys: protection === "runtime" ? [...keys] : [],
-                workIdentities: [],
-                lifecycleIdentities: [],
-              },
-            },
-          },
-        });
+        const result = await runSqliteSessionReclamation({ plan });
         expect(result.kind).toBe("maintenance-plan");
         if (result.kind === "maintenance-plan") {
           expect(result.value.archived).toBe(protection === "runtime" ? 0 : 1);

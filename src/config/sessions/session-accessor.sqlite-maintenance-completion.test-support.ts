@@ -36,27 +36,12 @@ export function observeSessionMaintenanceCompletion(
         "Session reclamation observer",
       )
     : reclamationRun.runSqliteSessionReclamation;
-  const ageObserver = vi
+  const planningObserver = vi
     .spyOn(reclamationRun, "runSqliteSessionReclamation")
     .mockImplementation(async (params) => {
-      let consumed: SessionEntryMaintenancePlan | undefined;
-      const consume = params.consumeReadOnlyMaintenancePlan;
-      const result = await reclaim({
-        ...params,
-        ...(consume
-          ? {
-              consumeReadOnlyMaintenancePlan(read, assertCurrent) {
-                consume(read, assertCurrent);
-                consumed = read.value;
-              },
-            }
-          : {}),
-      });
+      const result = await reclaim(params);
       if (params.plan.databaseOptions.path !== databasePath) {
         return result;
-      }
-      if (result.kind === "maintenance-plan" && consumed && accept(consumed)) {
-        completed.resolve(consumed);
       }
       if (result.kind === "maintenance-plan") {
         const plan = result.value;
@@ -64,7 +49,7 @@ export function observeSessionMaintenanceCompletion(
           plan.archived === 0 &&
           plan.entryRemovals.length === 0 &&
           plan.stateDeletePlans.length === 0;
-        if (!result.readOnlyInput && empty && accept(plan)) {
+        if (empty && accept(plan)) {
           completed.resolve(plan);
         }
       }
@@ -85,7 +70,7 @@ export function observeSessionMaintenanceCompletion(
     });
   onTestFinished(() => {
     observer.mockRestore();
-    ageObserver.mockRestore();
+    planningObserver.mockRestore();
   });
   return completed.promise;
 }

@@ -32,12 +32,11 @@ import {
 } from "./store-maintenance.js";
 
 type SessionMaintenancePlanningWorkerResponse = {
-  kind: "committed" | "not-committed" | "read-only";
+  kind: "committed" | "not-committed";
   workerThreadId: number;
 };
 
 export function observeSessionMaintenancePlanningWorker(hooks: {
-  onRead?: (kind: "maintenance-plan" | "maintenance-age") => void;
   beforeExecute?: () => void;
   beforeAdmission?: (request: admission.SqliteWorkerAdmissionRequest) => void;
   afterPrepare?: (
@@ -77,19 +76,7 @@ export function observeSessionMaintenancePlanningWorker(hooks: {
                   command.type === "session.maintenance.metadata" &&
                   isRecord(command.input) &&
                   command.input.kind === "maintenance-plan";
-                const reading =
-                  command.type === "session.maintenance.read" &&
-                  isRecord(command.input) &&
-                  command.input.kind === "maintenance-plan";
-                if (
-                  command.type === "session.maintenance.read" &&
-                  isRecord(command.input) &&
-                  (command.input.kind === "maintenance-plan" ||
-                    command.input.kind === "maintenance-age")
-                ) {
-                  hooks.onRead?.(command.input.kind);
-                }
-                if (planning || reading) {
+                if (planning) {
                   hooks.beforeExecute?.();
                 }
                 const preparationCommand =
@@ -112,20 +99,6 @@ export function observeSessionMaintenancePlanningWorker(hooks: {
                   await hooks.beforeRelease(preparationId);
                 }
                 const result = await worker.execute(command, options);
-                if (
-                  reading &&
-                  isRecord(result) &&
-                  isRecord(result.result) &&
-                  result.result.kind === "maintenance-plan"
-                ) {
-                  if (typeof result.workerThreadId !== "number") {
-                    throw new Error("Real maintenance read omitted its worker identity");
-                  }
-                  await hooks.afterExecute?.(
-                    { kind: "read-only", workerThreadId: result.workerThreadId },
-                    {},
-                  );
-                }
                 if (
                   command.type === "session.maintenance.prepare" &&
                   preparationId !== undefined &&
