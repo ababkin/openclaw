@@ -1004,6 +1004,7 @@ describe("palette-only remembered settings", () => {
     "leaves workspace-search composition keys untouched: %j",
     async (composition) => {
       const { host } = await mountPreferences();
+      host.querySelector<HTMLButtonElement>(".palette-session-settings__trigger")!.click();
       expectDefined(
         host.querySelector<HTMLButtonElement>(".palette-session-settings__workspace"),
         "workspace picker",

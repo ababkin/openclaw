@@ -108,9 +108,9 @@ with `Goal error: goal already exists` until the current one is cleared.
 - `budget_limited`: the configured token budget was reached. `/goal resume`
   restarts pursuit from the same objective with a fresh budget window.
 - `usage_limited`: reserved for a future usage-limit stop state. `/goal
-resume` restarts pursuit the same way.
+  resume` restarts pursuit the same way.
 - `complete`: the goal was achieved. Complete goals are terminal. Use `/goal
-clear` before starting another goal. Repeating completion preserves the original
+  clear` before starting another goal. Repeating completion preserves the original
   completion time, including when you add a status note.
 
 `/new` and `/reset` clear the current session goal, since they intentionally

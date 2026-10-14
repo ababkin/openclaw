@@ -4,6 +4,7 @@ import { createSignal } from "solid-js";
 import { expect, it, vi } from "vitest";
 import { mountSolid } from "../../../test-helpers/mount-solid.ts";
 import { flush, waitForSolid } from "../../../test-helpers/solid-settle.ts";
+import { settleWebAwesome } from "../../../test-helpers/web-awesome.ts";
 import { ChatComposerPlusMenu } from "./chat-composer-plus-menu.tsx";
 import {
   createSlashMenuState,
@@ -92,6 +93,7 @@ it("retains the focused capability row through toggles and a reordered catalog r
   const dropdown = view.container.querySelector<WaDropdown>("wa-dropdown")!;
   const row = view.container.querySelector<WaDropdownItem>('wa-dropdown-item[value="skill:0"]')!;
   await Promise.all([dropdown.updateComplete, row.updateComplete]);
+  await settleWebAwesome(view.container);
   row.focus();
   expect(document.activeElement).toBe(row);
 
