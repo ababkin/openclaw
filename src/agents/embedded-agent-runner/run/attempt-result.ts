@@ -278,15 +278,19 @@ export function completeEmbeddedAttemptResult(
     terminal: state.terminal,
   });
   const assistant = resolveCurrentAttemptAssistant(state);
-  const allowedToolNames = input.prepared.toolCatalog.toolSearchRunPlan.liveAllowedToolNames;
-  const textToolCallAttempt =
-    allowedToolNames.size > 0 &&
+  let textToolCallAttempt = false;
+  if (
     state.terminal.kind === "ok" &&
     assistant?.stopReason === "stop" &&
-    !assistant.content.some(isRunnerToolCallBlock) &&
-    isPlainTextToolCallAttempt(extractAssistantTranscriptSourceText(assistant) ?? "", (name) =>
-      Boolean(resolveToolCallName(name, allowedToolNames, undefined, true)),
-    );
+    !assistant.content.some(isRunnerToolCallBlock)
+  ) {
+    const allowedToolNames = input.prepared.toolCatalog.toolSearchRunPlan.liveAllowedToolNames;
+    textToolCallAttempt =
+      allowedToolNames.size > 0 &&
+      isPlainTextToolCallAttempt(extractAssistantTranscriptSourceText(assistant) ?? "", (name) =>
+        Boolean(resolveToolCallName(name, allowedToolNames, undefined, true)),
+      );
+  }
   const result: EmbeddedRunAttemptWithReceiptEvidence = {
     ...(textToolCallAttempt ? { textToolCallAttempt: true } : {}),
     ...state,
