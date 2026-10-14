@@ -172,11 +172,12 @@ describe("app launch catalog", () => {
         {
           ...server,
           label: "Updated parts plugin",
-          entrypoints: server.entrypoints.map((entry) => ({
-            ...entry,
-            title: `Updated ${entry.title}`,
-            resourceUri: `${entry.resourceUri}-updated`,
-          })),
+          entrypoints: server.entrypoints.map((entry) =>
+            Object.assign({}, entry, {
+              title: `Updated ${entry.title}`,
+              resourceUri: `${entry.resourceUri}-updated`,
+            }),
+          ),
         },
       ],
     });
@@ -191,7 +192,7 @@ describe("app launch catalog", () => {
       expect(thread.querySelectorAll(".mcp-app-catalog__entry > button")[1]).toBe(threadEntry);
       expect(threadEntry.textContent).toContain("Updated Parts tray alternate");
     });
-    const launch = vi.fn((event: Event) => event.preventDefault());
+    const launch = vi.fn((launchEvent: Event) => launchEvent.preventDefault());
     thread.addEventListener(MCP_APP_OPEN_EVENT, launch);
     threadEntry.click();
     expect(launch).toHaveBeenCalledOnce();
