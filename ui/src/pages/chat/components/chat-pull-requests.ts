@@ -122,6 +122,7 @@ function renderChecks(
     sessionKey?: string;
     sessionId?: string;
     presented?: PresentationValue;
+    dismissed?: boolean;
   },
 ) {
   const checks = pullRequest.checks;
@@ -131,6 +132,7 @@ function renderChecks(
     label,
     checksState: checks?.state ?? "none",
     presented,
+    dismissed: props.dismissed,
     content: html`
       <div
         class="chat-pr__checks-menu"
@@ -301,6 +303,7 @@ export function renderChatPullRequests(props: {
   sessionKey?: string;
   sessionId?: string;
   presented?: PresentationValue;
+  dismissed?: boolean;
   branch?: ControlUiSessionBranch;
   /** Hides the branch row and its idle publish offer; retained publication outcomes stay visible. */
   branchDismissed?: boolean;

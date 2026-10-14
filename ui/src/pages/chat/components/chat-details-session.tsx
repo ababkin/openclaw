@@ -14,7 +14,7 @@ import { renderChatPullRequests } from "./chat-pull-requests.ts";
 import "./chat-subagent-activity-live.ts";
 import { ChatSummaryAutomations } from "./chat-summary-automations.tsx";
 
-type Props = { props?: ChatDetailsProps; presented: boolean };
+type Props = { props?: ChatDetailsProps; presented: boolean; dismissed?: boolean };
 export type ChatDetailsSession = SolidBridgeElement<Props>;
 
 export const ChatDetailsSession = defineSolidBridge<Props>(
@@ -57,6 +57,7 @@ export const ChatDetailsSession = defineSolidBridge<Props>(
                 snapshot.currentAgentId ?? undefined,
               ),
               presented: active() && pullRequestsOpen(),
+              dismissed: props.dismissed,
               branch: snapshot.pullRequestsBranch,
               branchDismissed: snapshot.pullRequestsBranchDismissed,
               status: snapshot.pullRequestsStatus ?? "ready",
@@ -257,6 +258,7 @@ export const ChatDetailsSession = defineSolidBridge<Props>(
     properties: {
       props: { default: undefined, attribute: false },
       presented: { default: false, type: Boolean },
+      dismissed: { default: false, type: Boolean },
     },
   },
 );
