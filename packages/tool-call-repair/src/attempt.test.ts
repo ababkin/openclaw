@@ -38,6 +38,7 @@ describe("non-executing text tool-call detection", () => {
     definition,
     '{"name":"write","description":"Write a file","parameters":{"type":"object"}}',
     '{"name":"write","parameters":{"type":"object"}}',
+    '{"name":"write","parameters":{"properties":{"path":{"type":"string"}},"required":["path"]}}',
     '{"type":"function","function":{"name":"write","description":"Write a file","parameters":{}}}',
     `{"type":"function","function":${definition}}`,
     `Here is an example of the API:\n${fenced}`,
@@ -60,5 +61,14 @@ describe("non-executing text tool-call detection", () => {
   it("uses only the current offered tool names", () => {
     expect(isPlainTextToolCallAttempt(fenced, (name) => name === "read")).toBe(false);
     expect(isPlainTextToolCallAttempt(fenced, () => false)).toBe(false);
+  });
+
+  it("keeps explanatory prefixes literal even with permissive name matching", () => {
+    expect(
+      isPlainTextToolCallAttempt(
+        `Example of functions.write\n${fenced}`,
+        (name) => name === "write" || name.endsWith(".write"),
+      ),
+    ).toBe(false);
   });
 });

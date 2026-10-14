@@ -34,7 +34,8 @@ function hasToolArgs(record: Record<string, unknown>): boolean {
     ("parameters" in record &&
       typeof record.description !== "string" &&
       record.type !== "function" &&
-      parameters?.type !== "object")
+      parameters?.type !== "object" &&
+      !asOptionalRecord(parameters?.properties))
   );
 }
 
@@ -291,11 +292,9 @@ export function isPlainTextToolCallAttempt(
   const fileAnnouncement = /^(?:create|read|write|update|delete) the file$/i.test(
     announcement ?? "",
   );
+  const toolLabel = /^[A-Za-z_][A-Za-z0-9_.:-]*$/.test(prefix) && hasToolName(prefix);
   // Accept only a tool label or complete action announcement, not explanatory prose.
-  if (
-    !body ||
-    (prefix && !hasToolName(prefix) && !hasToolName(announcedTool ?? "") && !fileAnnouncement)
-  ) {
+  if (!body || (prefix && !toolLabel && !hasToolName(announcedTool ?? "") && !fileAnnouncement)) {
     return false;
   }
   return isStructuredCall(body.trim(), hasToolName);
