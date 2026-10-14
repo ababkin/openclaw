@@ -56,17 +56,17 @@ describe.runIf("__vitest_browser__" in globalThis)("searchable model menu layout
         label: `Model ${index}`,
       }));
       const onChange = vi.fn();
-      const shared = renderPicker({
+      const shared = html`${renderPicker({
         label: "Shared",
         value: "fixture/model-0",
         options,
         searchable: true,
         onChange,
-      });
+      })}`;
       render(
         html`
-          ${renderSettingsRow({ title: "Primary", control: renderModelPicker({ label: "Primary", value: "fixture/model-0", options, onChange }) })}
-          ${renderSettingsRow({ title: "Decision", control: renderDecisionModelPicker({ id: "alignment-decision", models: [{ provider: "fixture", id: "one", name: "Decision one", pluginId: "fixture" }], value: "fixture/one", disabled: false, onChange }) })}
+          ${renderSettingsRow({ title: "Primary", control: html`${renderModelPicker({ label: "Primary", value: "fixture/model-0", options, onChange })}` })}
+          ${renderSettingsRow({ title: "Decision", control: html`${renderDecisionModelPicker({ id: "alignment-decision", models: [{ provider: "fixture", id: "one", name: "Decision one", pluginId: "fixture" }], value: "fixture/one", disabled: false, onChange })}` })}
           ${renderSettingsRow({ title: "Shared", control: shared })} ${shared}
           ${renderSettingsRow({ title: "Value", control: html`<input class="settings-input" aria-label="Value" value="42" /><span class="settings-secret"><input class="settings-input" aria-label="Nested value" value="example" /></span>` })}
         `,
