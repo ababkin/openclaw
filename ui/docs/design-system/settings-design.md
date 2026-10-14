@@ -63,7 +63,7 @@ Mount settings views inside `ShellLayoutProvider` from
 `ui/src/app/shell-layout-traits-solid.tsx`, passing the shell's `ShellLayoutOwner`
 and the connected route host. Settings layout boundaries publish their traits
 before evaluating descendant content, so measurements see the correct shell
-classes. Keep this owner shared with the Lit shell adapter during migration.
+classes.
 
 ## Phone and native embed layouts
 
