@@ -1329,16 +1329,20 @@ describe("publication status real CLI", () => {
   );
 
   it.each([
-    "awaiting",
-    "admitted",
-    "rejected",
-    "wrong-source",
-    "foreign-request",
-    "legacy-attempt",
-  ])("correlates the Linux builder through its owner admission (%s)", async (kind) => {
+    ["unconfirmed", "dispatch-unconfirmed"],
+    ["awaiting", "awaiting-admission"],
+    ["admitted", "success"],
+    ["rejected", "failure"],
+    ["wrong-source", "success"],
+    ["foreign-request", "success"],
+    ["legacy-attempt", "request-attempt-unknown"],
+  ])("correlates the Linux builder through its owner admission (%s)", async (kind, operation) => {
     const fixture = publicationFixture();
     fixture.publisherJobs.push({
-      ...job("Request Linux assets after publication"),
+      ...job(
+        "Request Linux assets after publication",
+        kind === "unconfirmed" ? "failure" : "success",
+      ),
       id: 8810,
       run_id: 88,
       run_attempt: 1,
@@ -1379,11 +1383,14 @@ describe("publication status real CLI", () => {
       await artifact(4, fixture.publisher, "linux-release-dispatch-88-1", "linux-dispatch.json", {
         tag,
         sourceSha: TARGET_SHA,
-        state: "request-dispatched",
-        requestRunId: "909",
-        requestRunAttempt: kind === "legacy-attempt" ? undefined : "1",
-        workflowSha: SHA,
+        state: kind === "unconfirmed" ? "dispatch-unconfirmed" : "request-dispatched",
+        requestRunId: kind === "unconfirmed" ? undefined : "909",
+        requestRunAttempt: ["unconfirmed", "legacy-attempt"].includes(kind) ? undefined : "1",
+        workflowSha: kind === "unconfirmed" ? undefined : SHA,
       });
+      if (kind === "unconfirmed") {
+        return;
+      }
       responses[`repos/${REPOSITORY}/actions/runs/909`] = request;
       responses[`repos/${REPOSITORY}/actions/runs/909/attempts/1`] = request;
       responses[`repos/${REPOSITORY}/actions/workflows/9090`] = { id: 9090, path: request.path };
@@ -1444,17 +1451,9 @@ describe("publication status real CLI", () => {
     const surface = JSON.parse(result.stdout).publication.surfaces.nativeLinux;
     const mismatch = ["wrong-source", "foreign-request"].includes(kind);
     expect(result.status, result.stderr + result.stdout).toBe(mismatch ? 1 : 0);
-    expect(surface.operation.state).toBe(
-      kind === "legacy-attempt"
-        ? "request-attempt-unknown"
-        : kind === "awaiting"
-          ? "awaiting-admission"
-          : kind === "rejected"
-            ? "failure"
-            : "success",
-    );
+    expect(surface.operation.state).toBe(operation);
     expect(surface.children.map((child: { runId: string }) => child.runId)).toEqual(
-      ["awaiting", "legacy-attempt"].includes(kind) ? [] : ["910"],
+      ["unconfirmed", "awaiting", "legacy-attempt"].includes(kind) ? [] : ["910"],
     );
     expect(surface.terminalMarker.state).toBe(
       kind === "rejected" ? "rejected" : kind === "admitted" ? "admitted" : "unknown",

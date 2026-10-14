@@ -2455,9 +2455,9 @@ async function inspectPublicationStatus(options) {
       const surface = publication.surfaces.nativeLinux;
       surface.selection = "selected";
       surface.operation.state =
-        dispatch.state === "published-assets-reused"
-          ? "published-assets-reused"
-          : "awaiting-admission";
+        dispatch.state === "request-dispatched" || dispatch.state === "request-reused"
+          ? "awaiting-admission"
+          : dispatch.state;
       publication.dispatches.push({
         scope: "linux",
         state: dispatch.requestRunId ? "acknowledged" : "unknown",
