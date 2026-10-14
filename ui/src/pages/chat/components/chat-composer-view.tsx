@@ -14,7 +14,7 @@ import { ChatAttachmentInputs } from "./chat-attachment-inputs.tsx";
 import { handleChatAttachmentPaste } from "./chat-attachments.ts";
 import { AttachmentPreview, AttachmentReadStatus } from "./chat-attachments.tsx";
 import { ContextNotice } from "./chat-composer-context.tsx";
-import { hasComposerContent, solidTemplate } from "./chat-composer-controls.ts";
+import { hasComposerContent } from "./chat-composer-controls.ts";
 import {
   renderChatAbortActionSolid,
   renderChatPrimaryActionsSolid as ChatPrimaryActions,
@@ -39,7 +39,6 @@ import { resetSkillMenuState, SkillMenu } from "./chat-composer-skill-menu.tsx";
 import { SlashMenu, resetSlashMenuState } from "./chat-composer-slash-menu.tsx";
 import { commitComposerDraft } from "./chat-composer-state.ts";
 import { renderFallbackIndicatorSolid } from "./chat-composer-status.tsx";
-import type { ChatComposerProps } from "./chat-composer-types.ts";
 import { isPastedTextAttachment } from "./chat-pasted-text.ts";
 import { ChatPermissionPicker } from "./chat-permission-picker.tsx";
 import {
@@ -50,10 +49,6 @@ import {
 import { ChatVoiceStatus } from "./chat-voice-activity.tsx";
 
 type ChatComposerViewContext = ReturnType<typeof createChatComposerContext>;
-
-export function renderChatComposerQueue(props: ChatComposerProps, showAbortableUi: boolean) {
-  return solidTemplate(ComposerQueue, { composer: props, showAbortableUi });
-}
 
 export function renderChatComposerView(context: ChatComposerViewContext) {
   const props = untrack(() => context.props);

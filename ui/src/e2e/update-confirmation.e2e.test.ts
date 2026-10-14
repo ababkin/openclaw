@@ -441,7 +441,7 @@ suite.define(() => {
         ).toEqual(["sr-only", "sidebar-issues-button"]);
         await page.locator(".sidebar-issues-button").screenshot({
           animations: "disabled",
-          path: path.join(PROOF_DIR, "00-footer-inbox-badge.png"),
+          path: path.join(PROOF_DIR, "00-inbox-badge.png"),
         });
 
         await page.locator(".sidebar-issues-button").click();
