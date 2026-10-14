@@ -3,9 +3,18 @@ import { registerFilePreviewEnglish } from "../../../i18n/locales/en-file-previe
 import { copyToClipboard } from "../../../lib/clipboard.ts";
 import { downloadTextFile } from "../../../lib/download.ts";
 import { t } from "../../../lib/reactive/i18n.ts";
-import type { FileDraft } from "./file-draft-recovery-dialog.ts";
+import type { FileSidebarContent } from "./chat-sidebar-content-types.ts";
 
 registerFilePreviewEnglish();
+
+export type FileDraft = {
+  name: string;
+  path: string;
+  context: FileSidebarContent["draftContext"];
+  content: string;
+  isCurrent: () => boolean;
+  discard: () => boolean;
+};
 
 export function FileDraftRecoveryDialog(props: {
   drafts: readonly FileDraft[];
@@ -29,7 +38,7 @@ export function FileDraftRecoveryDialog(props: {
     if (!current(entry)) {
       return;
     }
-    const ok = await copyToClipboard(entry.content, () => current(entry));
+    const ok = await copyToClipboard(entry.content, () => untrack(() => current(entry)));
     if (current(entry)) {
       setCopied(ok ? entry : undefined);
       setError(ok ? "" : t("chat.detailPanel.draftRecovery.copyFailed"));

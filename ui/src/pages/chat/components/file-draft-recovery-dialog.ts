@@ -1,16 +1,8 @@
 import { createComponent } from "solid-js";
 import { withPromiseModalHost } from "../../../components/promise-modal-host.ts";
-import type { FileSidebarContent } from "./chat-sidebar-content-types.ts";
-import { FileDraftRecoveryDialog } from "./file-draft-recovery-dialog-view.tsx";
+import { FileDraftRecoveryDialog, type FileDraft } from "./file-draft-recovery-dialog-view.tsx";
 
-export type FileDraft = {
-  name: string;
-  path: string;
-  context: FileSidebarContent["draftContext"];
-  content: string;
-  isCurrent: () => boolean;
-  discard: () => boolean;
-};
+export type { FileDraft } from "./file-draft-recovery-dialog-view.tsx";
 
 export function reviewFileDrafts(drafts: readonly FileDraft[]): Promise<void> {
   return withPromiseModalHost<void>(undefined, (modal) => {

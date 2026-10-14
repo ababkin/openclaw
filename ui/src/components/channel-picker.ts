@@ -1,11 +1,8 @@
 import { solidContent } from "../lit/solid-content.tsx";
-import type { PickerOption, PickerParams } from "./select-picker-types.ts";
-import { ChannelPicker } from "./solid/channel-picker.tsx";
+import type { PickerParams } from "./select-picker-types.ts";
+import { ChannelPicker, type ChannelPickerOption } from "./solid/channel-picker.tsx";
 
-export type ChannelPickerOption = PickerOption & {
-  /** Neutral choices such as "last" or "all" are routing policy, not transports. */
-  kind?: "channel" | "neutral";
-};
+export type { ChannelPickerOption } from "./solid/channel-picker.tsx";
 
 export function renderChannelPicker(params: PickerParams<ChannelPickerOption>) {
   return solidContent(ChannelPicker, params);
