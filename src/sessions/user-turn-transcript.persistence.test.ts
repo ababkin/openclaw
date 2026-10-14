@@ -40,6 +40,23 @@ import {
 } from "./user-turn-transcript.test-support.js";
 import type { UserTurnOriginalInputCommit } from "./user-turn-transcript.types.js";
 
+const acceptedPeerDelivery = {
+  version: 1,
+  runId: "peer-send",
+  source: { agentId: "main", sessionKey: "agent:main:source", sessionId: "source-id" },
+  target: { agentId: "main", sessionKey: "agent:main:target", sessionId: "target-id" },
+  sandboxed: false,
+  message: "hello",
+  operatorSource: {
+    kind: "channel",
+    snapshot: {
+      reference: { version: 1, id: "00000000-0000-4000-8000-000000000001" },
+      profileId: "original",
+      scopes: ["operator.read"],
+    },
+  },
+};
+
 describe("persistUserTurnTranscript", () => {
   const sessionDirs = useSessionStoreTempDirs(
     (cleanup) =>
@@ -311,6 +328,9 @@ describe("persistUserTurnTranscript", () => {
             senderName: "Original",
             senderIsOwner: true,
             ...(mode === "forge" ? {} : { senderIdentity: identity }),
+            ...(mode === "forge"
+              ? {}
+              : { sessionSendDelivery: structuredClone(acceptedPeerDelivery) }),
           },
         },
         target,
@@ -319,14 +339,20 @@ describe("persistUserTurnTranscript", () => {
             mode === "in-place" ? message["__openclaw"]! : { ...message["__openclaw"] };
           if (mode === "forge") {
             metadata.senderIdentity = { type: "profile", id: "forged" };
+            metadata.sessionSendDelivery = { ...acceptedPeerDelivery, operatorSource: null };
           }
           if (mode === "in-place") {
             (metadata.senderIdentity as { id: string }).id = "forged";
             requesterOrigin.senderId = "forged";
             requesterOrigin.sessionKey = "agent:main:replacement";
+            const delivery = metadata.sessionSendDelivery as typeof acceptedPeerDelivery;
+            delivery.source.sessionKey = "agent:main:forged";
+            delivery.operatorSource.snapshot.profileId = "forged";
+            delivery.operatorSource.snapshot.scopes.push("operator.admin");
           }
           if (mode === "raw-redact") {
             delete metadata.senderId;
+            delete metadata.sessionSendDelivery;
           }
           return {
             ...message,
@@ -354,6 +380,7 @@ describe("persistUserTurnTranscript", () => {
                 messageProvider: "telegram",
                 senderId: "original",
               },
+              sessionSendDelivery: acceptedPeerDelivery,
             }),
       });
     },

@@ -239,6 +239,7 @@ export function preparePersistedUserTurnMessageForTranscriptWrite(
   const requesterOrigin = originalMeta?.requesterOrigin
     ? captureRequesterOrigin({ requesterOrigin: originalMeta.requesterOrigin })
     : undefined;
+  const sessionSendDelivery = structuredClone(originalMeta?.sessionSendDelivery);
   const originalContent =
     originalMeta?.humanMentions === undefined && originalMeta?.workContext === undefined
       ? undefined
@@ -299,6 +300,10 @@ export function preparePersistedUserTurnMessageForTranscriptWrite(
   delete protectedMeta.requesterOrigin;
   if (requesterOrigin) {
     protectedMeta.requesterOrigin = requesterOrigin;
+  }
+  delete protectedMeta.sessionSendDelivery;
+  if (sessionSendDelivery !== undefined) {
+    protectedMeta.sessionSendDelivery = sessionSendDelivery;
   }
   // A redacting hook must not leave an alternate copy of the original text visible.
   const contentUnchanged = isDeepStrictEqual(nextUserMessage.content, originalContent);
