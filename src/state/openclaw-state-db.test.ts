@@ -956,6 +956,7 @@ describe("openclaw state database", () => {
           `Re-anchored agent database registry path ${copiedForeignPath} to the current state directory`,
           `Removed duplicate agent database registry path ${dualForeignPath}`,
           "Qualified historical cron creator attribution as unknown (v14)",
+          "Replaced retained task indexes with ordered cron history indexes (v23)",
         ],
         warnings: [],
       });
@@ -1170,6 +1171,7 @@ describe("openclaw state database", () => {
       changes: [
         "Folded singleton state tables into config_machine_state (v12)",
         "Qualified historical cron creator attribution as unknown (v14)",
+        "Replaced retained task indexes with ordered cron history indexes (v23)",
       ],
       warnings: [],
     });
@@ -1435,6 +1437,7 @@ describe("openclaw state database", () => {
         "Migrated shared state session watch cursors → provenance column (0 ambient, 0 sentinels removed)",
         "Consolidated shared state tables (v13)",
         "Qualified historical cron creator attribution as unknown (v14)",
+        "Replaced retained task indexes with ordered cron history indexes (v23)",
       ],
       warnings: [],
     });
@@ -1820,6 +1823,7 @@ describe("openclaw state database", () => {
       { kind: "conversation-binding-targets-v15", path: fixture.databasePath },
       { kind: "predicate-columns-v21", path: fixture.databasePath },
       { kind: "portable-identity-columns-v22", path: fixture.databasePath },
+      { kind: "task-run-indexes-v23", path: fixture.databasePath },
       { kind: "audit-events-v2", path: fixture.databasePath },
       { kind: "strict-tables-v3", path: fixture.databasePath },
     ]);
@@ -1840,6 +1844,7 @@ describe("openclaw state database", () => {
         "Consolidated shared state tables (v13)",
         "Qualified historical cron creator attribution as unknown (v14)",
         "Removed redundant conversation binding target projections (v15)",
+        "Replaced retained task indexes with ordered cron history indexes (v23)",
         "Migrated shared state tables to SQLite STRICT typing (48)",
       ],
       warnings: [],
@@ -2143,6 +2148,7 @@ describe("openclaw state database", () => {
       { kind: "creator-namespace-v14", path: seeded.databasePath },
       { kind: "predicate-columns-v21", path: seeded.databasePath },
       { kind: "portable-identity-columns-v22", path: seeded.databasePath },
+      { kind: "task-run-indexes-v23", path: seeded.databasePath },
       { kind: "session-watch-cursor-provenance-v4", path: seeded.databasePath },
     ]);
     expect(repairOpenClawStateDatabaseSchema(options)).toEqual({
@@ -2150,6 +2156,7 @@ describe("openclaw state database", () => {
         "Migrated cloud worker placements to execution modes",
         "Migrated shared state session watch cursors → provenance column (2 ambient, 5 sentinels removed)",
         "Qualified historical cron creator attribution as unknown (v14)",
+        "Replaced retained task indexes with ordered cron history indexes (v23)",
       ],
       warnings: [],
     });

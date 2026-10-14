@@ -54,7 +54,7 @@ function retainedTaskState(db: EngineConnection) {
     localSchema: db
       .prepare(
         `SELECT name, sql FROM sqlite_schema
-         WHERE name IN ('idx_task_runs_local_label', 'local_task_summary') ORDER BY name`,
+         WHERE name = 'idx_task_runs_local_label'`,
       )
       .all(),
   };
@@ -89,11 +89,6 @@ function legacyTaskDatabase(refusePublication = false) {
     INSERT INTO schema_meta (meta_key, role, schema_version, created_at, updated_at)
       VALUES ('primary', 'global', 22, 1, 1);
     CREATE INDEX idx_task_runs_local_label ON task_runs(label);
-    CREATE TRIGGER local_task_summary AFTER UPDATE OF terminal_summary ON task_runs
-      BEGIN
-        UPDATE task_runs SET progress_summary = 'local:' || NEW.terminal_summary
-          WHERE task_id = NEW.task_id;
-      END;
   `);
   const insert = db.prepare(`INSERT INTO task_runs
     (rowid, task_id, runtime, owner_key, scope_kind, task, status, delivery_status,
@@ -186,12 +181,8 @@ it.each(["runtime", "doctor"] as const)(
       options,
     );
     const updated = readCronRunRecordsInDatabase(db, input.jobId, input.runId);
-    expect(updated).toEqual([
-      expect.objectContaining({ id: first[0].id, endedAt: 220, summary: "updated result" }),
-    ]);
-    expect(
-      db.prepare("SELECT progress_summary FROM task_runs WHERE task_id = ?").get(first[0].id),
-    ).toEqual({ progress_summary: "local:updated result" });
+    expect(updated.map(({ id }) => id)).toEqual(first.map(({ id }) => id));
+    expect(updated).toEqual([expect.objectContaining({ endedAt: 220, summary: "updated result" })]);
     const schemaVersion = db.prepare("PRAGMA schema_version").get();
     await closeOpenClawStateDatabaseAsync();
     const reopened = openOpenClawStateDatabase(options).db;

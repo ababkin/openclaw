@@ -64,6 +64,7 @@ const schemaMigrationDescriptions = {
   "github-publication-requester-authority-v18":
     "GitHub publication receipts -> original requesting authority",
   "portable-identity-columns-v22": "ACP resume keys and receipt cursors -> portable columns",
+  "task-run-indexes-v23": "retained task indexes -> ordered cron history and runtime/run lookup",
   "predicate-columns-v21":
     "meeting transcripts and delivery retention -> derived predicate columns",
   "worker-placement-execution-mode-v8": "cloud worker placements -> execution-mode claims",
