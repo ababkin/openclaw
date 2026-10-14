@@ -108,8 +108,9 @@ when translating transaction-local callback behavior.
 
 ## Auth profiles and provider readiness
 
-Use `provider-auth` for profile stores and writes, `provider-auth-runtime` for
-profile metadata, and `agent-sessions` for `AuthStorage` and `ModelRegistry`.
+Use the public `provider-auth` surface for profile stores and writes. Bundled
+plugins also use the private `provider-auth-runtime` surface for profile metadata
+and `agent-sessions` for `AuthStorage` and `ModelRegistry`.
 Existing `agent-runtime` and runtime `modelAuth` aliases follow the same mapping;
 prefer the focused public subpath when one exists.
 
@@ -138,7 +139,7 @@ await auth.setAsync(providerId, credential);
 | `saveAuthProfileStore`                                   | `await updateAuthProfileStoreWithLock(...)` from `provider-auth`; mutate the current store under its owner                     |
 | `findPersistedAuthProfileCredential`                     | `await findPersistedAuthProfileCredentialAsync(...)`                                                                           |
 | `resolvePersistedAuthProfileOwnerAgentDir`               | `await resolvePersistedAuthProfileOwnerAgentDirAsync(...)`                                                                     |
-| `resolveAuthStorePathForDisplay`                         | `await AuthStorage.resolvePathForDisplayAsync(...)` from `agent-sessions`                                                      |
+| `resolveAuthStorePathForDisplay`                         | Retire physical database-path displays; display provider/profile identifiers instead. No public async path replacement.        |
 | `replaceRuntimeAuthProfileStoreSnapshots`                | `await replaceRuntimeAuthProfileStoreSnapshotsAsync(...)`                                                                      |
 | `AuthStorage.create(authPath)`                           | `await AuthStorage.forAgentAsync(agentDir)` using the path's owning agent directory                                            |
 | `AuthStorage.forAgent`                                   | `await AuthStorage.forAgentAsync(...)`                                                                                         |
@@ -166,9 +167,12 @@ and `getApiKey` already return promises. Do not replace a newer whole auth store
 with a previously loaded snapshot: use `updateAuthProfileStoreWithLock` for
 owner-backed mutation.
 
-The awaited display-path helper from `agent-runtime` preserves agent-local-versus-shared database
-selection, including locators for profiles that do not exist yet. Metadata
-helpers return profile/account identities and are not path substitutes.
+Physical database-path displays are retired after 2026-12-31. External plugins
+should display provider/profile identifiers; there is no public async API for
+the selected database path. The private bundled-plugin helper
+`AuthStorage.resolvePathForDisplayAsync` preserves agent-local-versus-shared
+database selection, including locators for profiles that do not exist yet.
+Metadata helpers return profile/account identities and are not path substitutes.
 
 Provider readiness hooks add an awaited callback:
 
@@ -514,18 +518,23 @@ and [observer visibility](/plugins/sdk-migration/how-to-migrate#await-session-ob
 | `OpenClawPluginNodeHostCommandContext.acquireManagedWorkspace`                                 | `await context.acquireManagedWorkspaceAsync(...)`; release the lease in `finally`                            |
 | `ensureAgentWorkspace.beforePersistentApply`                                                   | Await owner preparation before the call and use the SQL-free `guard.assertHost` at the effect                |
 | Unprepared `resolveTtsPrefsPath`                                                               | `await resolveTtsPrefsPathAsync(...)`, or pass `preparedTtsPreferences`                                      |
-| Unprepared `buildTtsSystemPromptHint`                                                          | `await buildTtsSystemPromptHintAsync(...)`, or pass `options.preparedTtsPreferences`                         |
+| Unprepared `buildTtsSystemPromptHint`                                                          | `await api.runtime.tts.buildSystemPromptHintAsync(...)`                                                      |
 
 ```ts
 // Before
 const hint = buildTtsSystemPromptHint(config, agentId);
 // After
-const hint = await buildTtsSystemPromptHintAsync(config, agentId);
+const prepareHint = api.runtime.tts.buildSystemPromptHintAsync;
+if (!prepareHint) {
+  throw new Error("Update OpenClaw to use async TTS prompt preparation.");
+}
+const hint = await prepareHint(config, agentId);
 ```
 
-For several TTS operations in one turn, call public `prepareTtsPreferences`
-once and pass that result to the supported prepared overloads. Those SQL-free
-synchronous overloads are not deprecated. See the [public TTS preparation
+Bundled plugins can call private `prepareTtsPreferences` once per turn and pass
+that result to the supported prepared overloads. Those SQL-free synchronous
+overloads are not deprecated. External plugins use the public runtime method
+above. See the [public TTS preparation
 recipe](/plugins/sdk-migration/async-transcript-and-tts#tts-prompts).
 
 ## Debug proxy capture and raw SQLite
