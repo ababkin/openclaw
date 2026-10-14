@@ -123,10 +123,11 @@ function awaitSignal(ownedKeychain) {
   setInterval(() => {}, 1000);
 }
 if (tool === 'security') {
-  assert.notEqual(env.HOME, ${JSON.stringify(home)});
-  for (const dir of [preferences, keychains]) assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  const ownedKeychains = env.HOME === ${JSON.stringify(home)}
+    ? path.join(path.dirname(env.TMPDIR), 'home/Library/Keychains') : keychains;
+  for (const dir of [preferences, ownedKeychains]) assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
   const owned = args.at(-1);
-  assert.equal(path.dirname(owned), keychains);
+  assert.equal(path.dirname(owned), ownedKeychains);
   const operation = args[0];
   if (operation === 'delete-keychain' && env.OPENCLAW_TEST_MENU_CAPTURE_DIR) {
     const mode = env.OPENCLAW_PROFILE === 'default' ? 'default' : 'named';
@@ -317,6 +318,10 @@ describe.skipIf(process.platform === "win32")("native test launch ownership", ()
           "if (env.OPENCLAW_TEST_MENU_CAPTURE_DIR)",
           "if (false && env.OPENCLAW_TEST_MENU_CAPTURE_DIR)",
         )
+        .replace(
+          "assert.ok(eventPath.startsWith(path.dirname(env.HOME) + path.sep));",
+          "assert.ok(eventPath.startsWith(path.dirname(env.TMPDIR) + path.sep));",
+        )
         .replace("const eventReport = ", "let eventReport = ")
         .replace(
           "if (eventReport !== null)",
@@ -344,9 +349,22 @@ if (process.argv[2] === 'print') {
       const calls = f.calls();
       const invoked = calls.filter((call) => call.tool === "OpenClawRecoveryTestHost");
       const home = invoked[0].env.HOME;
-      const ownedRoot = path.dirname(home);
+      const ownedRoot = path.dirname(invoked[0].env.TMPDIR);
+      const state = invoked[0].env.OPENCLAW_STATE_DIR;
       try {
         expect(invoked).toHaveLength(hosts);
+        expect(home).toBe(fs.realpathSync(f.env.HOME));
+        const security = calls.filter((call) => call.tool === "security");
+        expect(
+          security.every((call) => call.env.HOME === home && call.env.CFFIXED_USER_HOME === home),
+        ).toBe(true);
+        const keychain = path.join(ownedRoot, "home/Library/Keychains/native-tests.keychain-db");
+        expect(security[0].args.at(-1)).toBe(keychain);
+        expect(
+          invoked.every(
+            (call) => call.settings.default === keychain && call.keychain?.locked === false,
+          ),
+        ).toBe(true);
         expect(new Set(invoked.map((call) => call.env.HOME)).size).toBe(1);
         expect(new Set(invoked.map((call) => call.env.OPENCLAW_PROFILE)).size).toBe(1);
         expect(invoked[0].env.OPENCLAW_STATE_DIR).toBe(
@@ -367,7 +385,9 @@ if (process.argv[2] === 'print') {
         expect(fs.readFileSync(path.join(artifact, "phase-0-events.jsonl"), "utf8")).toContain(
           "runEnded",
         );
-        expect(fs.existsSync(home)).toBe(inspection === "unknown");
+        expect(fs.existsSync(home)).toBe(true);
+        expect(fs.existsSync(state)).toBe(inspection === "unknown");
+        expect(fs.existsSync(ownedRoot)).toBe(inspection === "unknown");
         if (inspection === "unknown") {
           expect(result.stderr).toContain("retirement is unverified");
         }
@@ -376,6 +396,7 @@ if (process.argv[2] === 'print') {
         }
       } finally {
         // Every executable was synthetic and joined; unknown inspection retained only fixture files.
+        fs.rmSync(state, { recursive: true, force: true });
         fs.rmSync(ownedRoot, { recursive: true, force: true });
       }
     },

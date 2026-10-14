@@ -139,14 +139,19 @@ await runWithFailedTrailer("macos-native", async () => {
   // Foundation's Darwin temp directory belongs to the disposable OS worker instead.
   const root = fs.realpathSync(fs.mkdtempSync("/tmp/oc-test-"));
   let canRemove = true;
+  let ownedProfileState: string | undefined;
   try {
-    const home = path.join(root, "home");
+    const resourceHome = path.join(root, "home");
+    const home = appHost ? fs.realpathSync(env.HOME) : resourceHome;
     const profile = profileMode === "named" || appHost ? `test-${randomUUID()}` : "default";
     const state = appHost ? path.join(home, `.openclaw-${profile}`) : path.join(root, "state");
     const tmp = path.join(root, "tmp");
     const menuCaptures = path.join(root, "menu-captures");
-    for (const dir of [home, state, tmp, menuCaptures]) {
+    for (const dir of [resourceHome, state, tmp, menuCaptures]) {
       fs.mkdirSync(dir, { mode: 0o700 });
+      if (appHost && dir === state) {
+        ownedProfileState = state;
+      }
     }
     const captureRoot = await openCaptureRoot(menuCaptures);
     const childEnv: NodeJS.ProcessEnv = {};
@@ -191,13 +196,13 @@ await runWithFailedTrailer("macos-native", async () => {
     });
 
     // Keep SwiftPM's build cache available without inheriting the runner's app state.
-    const cache = path.join(home, "Library/Caches");
+    const cache = path.join(resourceHome, "Library/Caches");
     fs.mkdirSync(cache, { recursive: true, mode: 0o700 });
     fs.symlinkSync(
       path.join(env.HOME, "Library/Caches/org.swift.swiftpm"),
       path.join(cache, "org.swift.swiftpm"),
     );
-    const keychain = path.join(home, "Library/Keychains/native-tests.keychain-db");
+    const keychain = path.join(resourceHome, "Library/Keychains/native-tests.keychain-db");
     // Security writes its user preferences beneath HOME but does not create the parent.
     for (const dir of [path.dirname(keychain), path.join(home, "Library/Preferences")]) {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -430,9 +435,15 @@ await runWithFailedTrailer("macos-native", async () => {
   } finally {
     // Retain evidence/resources if process-tree completion could not be established.
     if (canRemove) {
+      if (ownedProfileState) {
+        fs.rmSync(ownedProfileState, { recursive: true, force: true });
+      }
       fs.rmSync(root, { recursive: true, force: true });
     } else {
       console.error(`[macos-native] retained resources after incomplete launch/cleanup: ${root}`);
+      if (ownedProfileState) {
+        console.error(`[macos-native] retained profile state: ${ownedProfileState}`);
+      }
     }
   }
 });

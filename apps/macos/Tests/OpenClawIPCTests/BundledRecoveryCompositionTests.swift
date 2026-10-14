@@ -20,7 +20,7 @@ struct BundledRecoveryCompositionTests {
     func `ordinary retry`() async throws {
         try await AppKitTestSupport.startApplication()
         let state = AppProfile.current.stateDirectoryURL()
-        #expect(state == OpenClawPaths.stateDirURL)
+        try #require(state.resolvingSymlinksInPath() == OpenClawPaths.stateDirURL.resolvingSymlinksInPath())
         let runtime = try await BundledRuntime.seed()
         let version = try #require(GatewayEnvironment.appVersionString())
         let config: [String: Any] = [
@@ -45,6 +45,15 @@ struct BundledRecoveryCompositionTests {
         let manager = GatewayProcessManager.shared
         manager.setActive(true, source: .request)
         await manager.waitForStartupAttempt()
+        let serviceReady = switch manager.status {
+        case .running, .attachedExisting: true
+        default: false
+        }
+        try #require(
+            serviceReady && manager.lastFailureReason == nil,
+            Comment(rawValue: "Initial service startup: tests=\(ProcessInfo.processInfo.isRunningTests) " +
+                "activation=\(NSApp.activationPolicy()) status=\(manager.status) " +
+                "failure=\(manager.lastFailureReason ?? "none") log=\(manager.log.suffix(2048))"))
         #expect(try await GatewayConnection.shared.healthOK())
         let command = try #require(GatewayLaunchAgentManager.launchdProgramArguments())
         #expect(command.contains("--no-install"))
@@ -169,6 +178,15 @@ struct BundledRecoveryCompositionTests {
         manager.setActive(true, source: .request)
         #expect(PostUpdateController.shared.startIfNeeded())
         await manager.waitForStartupAttempt()
+        let serviceReady = switch manager.status {
+        case .running, .attachedExisting: true
+        default: false
+        }
+        try #require(
+            serviceReady && manager.lastFailureReason == nil,
+            Comment(rawValue: "Relaunch service startup: tests=\(ProcessInfo.processInfo.isRunningTests) " +
+                "activation=\(NSApp.activationPolicy()) status=\(manager.status) " +
+                "failure=\(manager.lastFailureReason ?? "none") log=\(manager.log.suffix(2048))"))
         #expect(try await GatewayConnection.shared.healthOK())
         #expect(AppDefaults.standard.data(forKey: postAppUpdateReceiptKey) == nil)
         manager.stop()
