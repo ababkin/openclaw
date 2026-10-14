@@ -490,7 +490,9 @@ async function runPendingMaintenance(
       return;
     }
     // A running pass keeps its captured policy; configuration changes apply to the next pass.
-    const operation: Extract<SqliteSessionReclamationPlan, { kind: "maintenance-plan" }> = {
+    const operation: Extract<SqliteSessionReclamationPlan, { kind: "maintenance-plan" }> & {
+      input: { activeSessionKeys: string[] };
+    } = {
       databaseOptions: resolveSessionReclamationDatabaseOptions(toDatabaseOptions(owner.scope)),
       kind: "maintenance-plan",
       materializedPlans: [],
