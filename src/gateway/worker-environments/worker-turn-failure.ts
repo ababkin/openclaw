@@ -74,12 +74,10 @@ export async function prepareWorkerTurnFailure(
   const pendingWorkspaceResult = await findPendingWorkerWorkspaceResult(placements, claim);
   if (pendingWorkspaceResult) {
     if (claim.owner.kind === "local") {
-      // The Gateway-owned run is already terminal. Atomically record the
-      // reconciliation failure before teardown so reclaim cannot see live work.
+      // Record terminal reconciliation before teardown releases the claim.
       await placements.failWorkspaceResultAndReleaseTurn(pendingWorkspaceResult, error);
     } else {
-      // A recovery sweep owns the still-live worker claim. Teardown here
-      // could discard the terminal event's durably fenced file results.
+      // Recovery owns the live claim and its durably fenced file results.
       await placements.handoffWorkspaceResultRecovery(claim);
     }
     if (!nodeLoss || !partialWritten) {
