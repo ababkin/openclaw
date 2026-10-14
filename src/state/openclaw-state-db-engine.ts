@@ -28,6 +28,7 @@ import { openClawStateDatabaseCache } from "./openclaw-state-db-cache.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "./openclaw-state-db-contract.js";
 import { openTrackedStateDatabase } from "./openclaw-state-db-handle.js";
 import { admitStateSchemaFacts } from "./openclaw-state-db-schema-version.js";
+import { writeStateSchemaContentVersion } from "./openclaw-state-schema-publication.js";
 import { statePostgresRuntime as runtime } from "./postgres-schema.generated/runtime.js";
 
 const recovery =
@@ -91,10 +92,7 @@ export function admitStatePostgres(db: PostgresSqlConnection, fresh: boolean): v
         (meta_key, role, schema_version, agent_id, app_version, created_at, updated_at)
         VALUES ('primary', 'global', ?, NULL, ?, ?, ?)`,
     ).run(OPENCLAW_STATE_SCHEMA_VERSION, VERSION, now, now);
-    db.prepare(
-      `INSERT INTO config_machine_state (state_key, value_json, updated_at_ms)
-        VALUES ('state.schema.contentVersion', ?, ?)`,
-    ).run(String(OPENCLAW_STATE_SCHEMA_VERSION), now);
+    writeStateSchemaContentVersion(db);
   }
   const meta = db
     .prepare("SELECT schema_version, role, agent_id FROM schema_meta WHERE meta_key = 'primary'")
