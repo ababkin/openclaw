@@ -438,7 +438,7 @@ function CameraCaptureContent(props: CameraProps, host: OpenClawChatCameraCaptur
   );
 }
 
-defineSolidBridge<CameraProps, { show(): void }>(
+export const ChatCameraCapture = defineSolidBridge<CameraProps, { show(): void }>(
   "openclaw-chat-camera-capture",
   CameraCaptureContent,
   {

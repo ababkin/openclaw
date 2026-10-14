@@ -10,7 +10,7 @@ import { registerActivityEnglish } from "../../i18n/locales/en-activity.ts";
 import { projectGateway } from "../../lib/reactive/application.ts";
 import { registerEnglishCatalog, t } from "../../lib/reactive/i18n.ts";
 import { defineSolidBridge, LitContent, type SolidBridgeElement } from "../../lit/solid-bridge.ts";
-import { renderChatImageLightbox } from "../chat/components/chat-image-lightbox.ts";
+import { ChatImageLightbox } from "../chat/components/chat-image-lightbox-view.tsx";
 import { renderMessageImages } from "../chat/components/chat-message-images.ts";
 import {
   assistantMediaPolicyKey,
@@ -403,9 +403,9 @@ function ActivitySessionMediaContent(
     const previews = older() ? [olderButton] : [];
     return renderMessageImages(displayedImages, imageOptions(), previews);
   };
-  const lightboxContent = () => {
+  const lightboxItem = () => {
     revision();
-    return renderChatImageLightbox(lightbox, () => closeImage());
+    return lightbox;
   };
   return (
     <>
@@ -429,7 +429,7 @@ function ActivitySessionMediaContent(
           )}
         </div>
       )}
-      <LitContent render={lightboxContent} />
+      <ChatImageLightbox item={lightboxItem()} onClose={closeImage} />
     </>
   );
 }

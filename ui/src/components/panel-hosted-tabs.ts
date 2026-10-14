@@ -28,7 +28,7 @@ export type PanelHostedTab = {
   url?: string;
   /** Explicit icon URL; takes precedence over hostname lookup and `icon`. */
   favicon?: string;
-  icon?: LegacyTemplateResult | Node;
+  icon?: LegacyTemplateResult | Node | ReturnType<typeof solidContent>;
   title?: string | null;
   statusLabel?: string | null;
   badge?: string | null;

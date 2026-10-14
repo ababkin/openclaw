@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n/index.ts";
-import * as attachmentInputs from "../chat/components/chat-attachment-inputs.ts";
+import * as attachmentInputs from "../chat/components/chat-attachment-inputs.tsx";
 import type { ChatDetailPanel } from "../chat/components/chat-detail-panel.tsx";
 import { NewSessionDictationControl } from "./composer-dictation-control.ts";
 import { DraftPlaceBrowser } from "./draft-place-browser.ts";
@@ -80,7 +80,7 @@ describe("new session draft route ownership", () => {
   });
 
   it("keeps retained attachment callbacks connected to live draft and lock state", async () => {
-    const inputs = vi.spyOn(attachmentInputs, "renderChatAttachmentInputs");
+    const inputs = vi.spyOn(attachmentInputs, "ChatAttachmentInputs");
     let dictating = false;
     vi.spyOn(NewSessionDictationControl.prototype, "active", "get").mockImplementation(
       () => dictating,
