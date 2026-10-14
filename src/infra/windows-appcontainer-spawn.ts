@@ -42,9 +42,10 @@ export function assertAppContainerSpawnSupported(stdio?: StdioOptions): void {
     checked = true;
     try {
       // Keep the token reader and its native loader off non-Windows import paths.
-      const { readCurrentAppContainerSid } = createRequire(import.meta.url)(
-        "@openclaw/proc-safe/windows-token",
-      ) as typeof import("@openclaw/proc-safe/windows-token");
+      const tokenModule = createRequire(import.meta.url)("@openclaw/proc-safe/windows-token");
+      const { readCurrentAppContainerSid } =
+        // SAFETY: this exact pinned CommonJS subpath implements the imported declaration.
+        tokenModule as typeof import("@openclaw/proc-safe/windows-token");
       const sid = readCurrentAppContainerSid();
       const uv = process.versions.uv;
       const major = Number(uv.split(".")[0]);

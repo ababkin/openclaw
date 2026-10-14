@@ -18,7 +18,10 @@ vi.mock("node:module", async (importOriginal) => {
     },
   });
 });
-vi.mock("../logging/subsystem.js", () => ({ createSubsystemLogger: () => ({ debug }) }));
+vi.mock("../logging/subsystem.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../logging/subsystem.js")>()),
+  createSubsystemLogger: () => ({ debug }),
+}));
 
 beforeEach(() => {
   vi.resetModules();
