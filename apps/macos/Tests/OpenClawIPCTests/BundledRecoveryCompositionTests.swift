@@ -69,6 +69,11 @@ struct BundledRecoveryCompositionTests {
         AppStateStore.shared.isPaused = true
         manager.stop()
         await manager.waitForStartupAttempt()
+        try #require(manager.status == .stopped && manager.lastFailureReason == nil)
+        try #require(GatewayLaunchAgentManager.launchdProgramArguments() == [])
+        let stoppedService = try #require(
+            try await GatewayLaunchAgentManager.loadedGatewayState(port: GatewayEnvironment.gatewayPort()))
+        try #require(stoppedService.runningPID == nil)
         let agent = state.appendingPathComponent("agents/main/agent/openclaw-agent.sqlite")
         let artifacts = [agent, URL(fileURLWithPath: agent.path + "-wal"), URL(fileURLWithPath: agent.path + "-shm")]
         let retained = artifacts.filter { FileManager.default.fileExists(atPath: $0.path) }
@@ -161,8 +166,12 @@ struct BundledRecoveryCompositionTests {
         #expect(AppDefaults.standard.data(forKey: postAppUpdateReceiptKey) == nil)
         manager.stop()
         await manager.waitForStartupAttempt()
+        try #require(manager.status == .stopped && manager.lastFailureReason == nil)
+        try #require(GatewayLaunchAgentManager.launchdProgramArguments() == [])
+        let stoppedService = try #require(
+            try await GatewayLaunchAgentManager.loadedGatewayState(port: GatewayEnvironment.gatewayPort()))
+        try #require(stoppedService.runningPID == nil)
         await GatewayConnection.shared.shutdown()
-        #expect(GatewayLaunchAgentManager.launchdProgramArguments()?.isEmpty == true)
     }
 
     private func updateWindow() async throws -> NSWindow {
