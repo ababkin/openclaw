@@ -1,0 +1,255 @@
+import { getEnvironmentData } from "node:worker_threads";
+import { openEngineStore } from "../infra/database-engine/open.js";
+import {
+  admitPostgresPhysicalFacts,
+  getPostgresPhysicalFacts,
+  requireNativeDatabaseFile,
+} from "../infra/database-engine/physical-facts.js";
+import { assertPostgresCatalog } from "../infra/database-engine/postgres-catalog.js";
+import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
+import { isPostgresSqlConnection, type PostgresSqlConnection } from "../infra/sql-connection.js";
+import {
+  invalidateLocalSqliteSchemaAdmissions,
+  publishSqliteDatabaseSchemaChange,
+} from "../infra/sqlite-database-admission.js";
+import {
+  createSqliteLifecycleAggregateError,
+  throwSqliteLifecycleErrors,
+} from "../infra/sqlite-lifecycle-errors.js";
+import { stageSqliteTransactionState } from "../infra/sqlite-post-commit.js";
+import { getAdmittedSqliteSchemaFacts } from "../infra/sqlite-schema-facts.js";
+import { VERSION } from "../version.js";
+import {
+  getStateRuntimeSchemaAdmission,
+  publishStateRuntimeSchemaAdmission,
+  publishStateSchemaVersionAdmission,
+} from "./openclaw-state-db-admission.js";
+import { openClawStateDatabaseCache } from "./openclaw-state-db-cache.js";
+import { OPENCLAW_STATE_SCHEMA_VERSION } from "./openclaw-state-db-contract.js";
+import { openTrackedStateDatabase } from "./openclaw-state-db-handle.js";
+import { admitStateSchemaFacts } from "./openclaw-state-db-schema-version.js";
+import type { DB } from "./openclaw-state-db.generated.js";
+import { statePostgresRuntime as runtime } from "./postgres-schema.generated/runtime.js";
+
+const recovery =
+  "Use the matching OpenClaw version or restore the matching PostgreSQL schema and anchor.";
+
+export function stateEngineInput() {
+  const connection: unknown =
+    process.env.NODE_ENV === "test"
+      ? getEnvironmentData("openclaw.test.state.connection")
+      : undefined;
+  return typeof connection === "string" ? { connection, schemaPrefix: "openclaw_test" } : undefined;
+}
+
+export function isStatePostgres(): boolean {
+  return stateEngineInput() !== undefined;
+}
+
+export function assertStateFileSnapshotAllowed(): void {
+  if (stateEngineInput()) {
+    requireNativeDatabaseFile("postgres", "file-snapshot");
+  }
+}
+
+export function inspectStateSqlite(db: Parameters<typeof openEngineStore>[0]["anchor"]) {
+  const facts = getAdmittedSqliteSchemaFacts(db);
+  if (!facts) {
+    throw new Error("State engine selection requires admitted SQLite catalog facts");
+  }
+  return {
+    hasEngineAnchor: facts.tables.has("openclaw_engine_anchor"),
+    hasExistingData: [...facts.tables, ...facts.views, ...facts.triggers.keys()].some(
+      (name) => name !== "openclaw_engine_anchor" && !name.startsWith("sqlite_"),
+    ),
+  };
+}
+
+export function admitStatePostgres(db: PostgresSqlConnection, fresh: boolean): void {
+  if (!fresh && getStateRuntimeSchemaAdmission(db)?.startupReady) {
+    return;
+  }
+  const facts = getPostgresPhysicalFacts(db);
+  if (!facts) {
+    throw new Error(`Missing PostgreSQL state admission. ${recovery}`);
+  }
+  const tables = new Set(
+    facts.catalog.filter((fact) => fact.kind === "table").map((fact) => fact.table),
+  );
+  const absent = new Set(
+    runtime.fragments.flatMap((fragment) =>
+      fragment.tables.some((table) => tables.has(table)) ? [] : fragment.tables,
+    ),
+  );
+  assertPostgresCatalog(
+    facts.catalog.filter(
+      (fact) => !fact.kind.endsWith("Definition") && fact.table !== "openclaw_schema_meta",
+    ),
+    runtime.expectedCatalog.filter((fact) => !absent.has(fact.table)),
+  );
+  const kysely = getNodeSqliteKysely<Pick<DB, "schema_meta" | "config_machine_state">>(db);
+  if (fresh) {
+    const now = Date.now();
+    executeSqliteQuerySync(
+      db,
+      kysely.insertInto("schema_meta").values({
+        meta_key: "primary",
+        role: "global",
+        schema_version: OPENCLAW_STATE_SCHEMA_VERSION,
+        agent_id: null,
+        app_version: VERSION,
+        created_at: now,
+        updated_at: now,
+      }),
+    );
+    executeSqliteQuerySync(
+      db,
+      kysely.insertInto("config_machine_state").values({
+        state_key: "state.schema.contentVersion",
+        value_json: String(OPENCLAW_STATE_SCHEMA_VERSION),
+        updated_at_ms: now,
+      }),
+    );
+  }
+  const meta = executeSqliteQuerySync(
+    db,
+    kysely
+      .selectFrom("schema_meta")
+      .select(["schema_version", "role", "agent_id"])
+      .where("meta_key", "=", "primary"),
+  ).rows[0];
+  const content = executeSqliteQuerySync(
+    db,
+    kysely
+      .selectFrom("config_machine_state")
+      .select("value_json")
+      .where("state_key", "=", "state.schema.contentVersion"),
+  ).rows[0];
+  if (
+    meta?.schema_version !== OPENCLAW_STATE_SCHEMA_VERSION ||
+    meta.role !== "global" ||
+    meta.agent_id !== null ||
+    content?.value_json !== String(OPENCLAW_STATE_SCHEMA_VERSION)
+  ) {
+    throw new Error(`PostgreSQL state metadata mismatch. ${recovery}`);
+  }
+  publishStateSchemaVersionAdmission(db, {
+    userVersion: facts.version,
+    contentVersion: facts.version,
+  });
+  publishStateRuntimeSchemaAdmission(db, true);
+}
+
+export const stateEngineSchema = {
+  id: "state",
+  version: OPENCLAW_STATE_SCHEMA_VERSION,
+  sqlite: "",
+  postgres: [
+    runtime.eagerSql,
+    ...runtime.fragments
+      .filter((fragment) => fragment.activation === "version-additive")
+      .map((fragment) => fragment.sql),
+  ].join("\n"),
+};
+
+export function ensureStatePostgresFragment(db: PostgresSqlConnection, table: string): void {
+  const facts = getPostgresPhysicalFacts(db);
+  if (!facts) {
+    throw new Error(`Missing PostgreSQL state admission. ${recovery}`);
+  }
+  const fragment = runtime.fragments.find((item) => item.tables.includes(table));
+  if (!fragment) {
+    throw new Error(`No PostgreSQL state fragment owns ${table}`);
+  }
+  if (
+    fragment.tables.every((name) =>
+      facts.catalog.some((fact) => fact.kind === "table" && fact.table === name),
+    )
+  ) {
+    return;
+  }
+  for (const id of fragment.dependencies) {
+    const dependency = runtime.fragments.find((item) => item.id === id);
+    if (!dependency) {
+      throw new Error(`Unknown state fragment dependency ${id}`);
+    }
+    ensureStatePostgresFragment(db, dependency.tables[0]!);
+  }
+  if (
+    !stageSqliteTransactionState(db, {
+      stage: () => {},
+      rollback: () => {},
+      commit: () => publishSqliteDatabaseSchemaChange(db),
+      invalidate: () => publishSqliteDatabaseSchemaChange(db),
+    })
+  ) {
+    throw new Error("PostgreSQL state fragments require the owner's transaction");
+  }
+  invalidateLocalSqliteSchemaAdmissions(db);
+  db.exec(fragment.sql);
+  admitPostgresPhysicalFacts({
+    anchor: db.anchor,
+    db,
+    namespace: facts.namespace,
+    storeId: facts.storeId,
+    store: facts.store,
+    version: facts.version,
+  });
+  admitStatePostgres(db, false);
+}
+
+export function openStatePostgresReadConnection(pathname: string, expectedIdentity?: string) {
+  const input = stateEngineInput();
+  if (!input) {
+    return undefined;
+  }
+  const anchor = openTrackedStateDatabase(pathname, { existingOnly: true, expectedIdentity });
+  let db: PostgresSqlConnection | undefined;
+  try {
+    admitStateSchemaFacts(anchor, pathname);
+    const selected = openEngineStore({
+      anchor,
+      schema: stateEngineSchema,
+      input,
+      inspectSqlite: () => inspectStateSqlite(anchor),
+      prepareAnchor: () => {},
+      openSqlite: () => {},
+      existingOnly: true,
+      admitPostgres: admitStatePostgres,
+      closeOnFailure: (connection, error) => {
+        db = connection;
+        throw error;
+      },
+    });
+    if (!isPostgresSqlConnection(selected)) {
+      throw new Error("Expected PostgreSQL state connection");
+    }
+    db = selected;
+    return {
+      database: { db, path: pathname },
+      close() {
+        throwSqliteLifecycleErrors(
+          openClawStateDatabaseCache.closeUnpublishedOpenClawStateDatabaseHandle({
+            db: selected,
+            path: pathname,
+          }),
+          "PostgreSQL state reader cleanup failed.",
+        );
+        return !selected.isOpen && !anchor.isOpen;
+      },
+    };
+  } catch (error) {
+    const errors = openClawStateDatabaseCache.closeUnpublishedOpenClawStateDatabaseHandle({
+      db: db ?? anchor,
+      path: pathname,
+    });
+    if (errors.length) {
+      throw createSqliteLifecycleAggregateError(
+        [error, ...errors],
+        "PostgreSQL state reader acquisition and cleanup failed.",
+        error,
+      );
+    }
+    throw error;
+  }
+}
