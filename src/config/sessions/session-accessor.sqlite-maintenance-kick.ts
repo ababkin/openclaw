@@ -195,11 +195,11 @@ export function kickSessionEntryMaintenanceAfterWrite(
         const maintenance = resolveOwnerMaintenance(created);
         if (
           !created.running &&
-          (created.ageFact?.entryCount === undefined ||
-            !shouldRunSessionEntryMaintenance({
-              entryCount: created.ageFact.entryCount,
-              maxEntries: maintenance.maxEntries,
-            }))
+          created.ageFact?.entryCount !== undefined &&
+          !shouldRunSessionEntryMaintenance({
+            entryCount: created.ageFact.entryCount,
+            maxEntries: maintenance.maxEntries,
+          })
         ) {
           return;
         }
@@ -660,15 +660,15 @@ async function runPendingMaintenance(
     owner.rejections = 0;
     if (
       operation.input.activeSessionKeys.length > 0 &&
-      owner.ageFact?.entryCount !== undefined &&
       !hasCurrentNoCandidates() &&
-      shouldRunSessionEntryMaintenance({
-        entryCount: owner.ageFact.entryCount,
-        maxEntries: maintenance.maxEntries,
-      }) &&
+      (owner.ageFact?.entryCount === undefined ||
+        shouldRunSessionEntryMaintenance({
+          entryCount: owner.ageFact.entryCount,
+          maxEntries: maintenance.maxEntries,
+        })) &&
       isCurrent()
     ) {
-      // This pass released its captured write protection; reconsider those rows once.
+      // An age-only read can omit the count; reconsider released write protection once.
       scheduleMaintenanceAfterWriteQuiet(databasePath, owner);
       return;
     }
