@@ -60,8 +60,8 @@ on `PATH` and uses it only when all of these hold:
 
 Otherwise OpenClaw uses the shipped binary. The Gateway logs one line with the
 chosen binary, its version, and the reason, for example
-`Codex app-server: using installed /usr/local/bin/codex 0.162.1 (newer than bundled 0.160.0)`
-or `Codex app-server: using bundled 0.160.0 (installed /usr/local/bin/codex 0.159.0 is not newer)`.
+`Codex app-server: using installed /usr/local/bin/codex 0.162.1 (newer than bundled 0.160.1)`
+or `Codex app-server: using bundled 0.160.1 (installed /usr/local/bin/codex 0.159.0 is not newer)`.
 
 If the selected Codex later fails to start, fails `initialize`, or reports
 another version (for example after an in-place upgrade), OpenClaw starts the
