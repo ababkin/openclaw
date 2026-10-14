@@ -1061,7 +1061,7 @@ export class ManagedWorktreeService {
       assertCurrent();
       if (params.retryDeferred) {
         // Repair before cleanup can defer the repository for those same missing objects.
-        await this.maintainGit(params);
+        await this.maintainGit({ ...params, progress });
         assertCurrent();
         this.orphanCleanupFailures.clear();
       }
@@ -1093,7 +1093,7 @@ export class ManagedWorktreeService {
           },
           classification,
         );
-      const { collect, repositoryProtection } = createWorktreeGcRemoval({
+      const { collect } = createWorktreeGcRemoval({
         env: this.env,
         records,
         now,
@@ -1146,7 +1146,7 @@ export class ManagedWorktreeService {
       assertCurrent();
       if (!params.retryDeferred) {
         // Cleanup has released allocation ownership and retired its refs before maintenance.
-        await this.maintainGit({ ...params, shouldDeferRepository: repositoryProtection });
+        await this.maintainGit({ ...params, progress });
       }
       assertCurrent();
       return progress.result;
