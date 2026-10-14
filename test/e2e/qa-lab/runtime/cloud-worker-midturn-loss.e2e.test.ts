@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 import { createQaGatewayChild } from "../../../../extensions/qa-lab/api.js";
 import type { OpenClawConfig } from "../../../../src/config/types.openclaw.js";
 import { loadOrCreateDeviceIdentity } from "../../../../src/infra/device-identity.js";
+import { resolveRuntimeProcessEntrypointUrl } from "../../../../src/infra/runtime-process-url.js";
 import {
   reserveTestPortListener,
   type TestPortClaim,
@@ -276,6 +277,7 @@ it.skipIf(process.platform === "win32")(
             root,
             gateway: { wsUrl: gateway.wsUrl, token: gateway.token, runtimeEnv: gateway.runtimeEnv },
             nodeConfig,
+            processOwnerUrl: resolveRuntimeProcessEntrypointUrl("serviceChildGroupAnchor").href,
           }),
         );
         await fs.writeFile(
@@ -283,8 +285,11 @@ it.skipIf(process.platform === "win32")(
           `${fixtureReceiptClientSource(receipts.endpoint)}
 import fs from 'node:fs/promises';
 import { connectWireClient, createPairedNodeWorkerHost } from ${JSON.stringify(fixtureUrl)};
+import { registerSealedRuntimeProcessEntrypoint } from ${JSON.stringify(pathToFileURL(path.resolve("src/infra/runtime-process-url.ts")).href)};
 const options = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
 const source = process.argv[3];
+// Linux custody requires the runner's built owner; a source-loader owner cannot reap safely.
+registerSealedRuntimeProcessEntrypoint('serviceChildGroupAnchor', new URL(options.processOwnerUrl));
 const operator = await connectWireClient({ gateway: options.gateway, role: 'operator', identity: null });
 process.stderr.write('operator connected\\n');
 let host;

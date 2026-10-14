@@ -17,8 +17,7 @@ import { sessionByKeyReadHandlers } from "../server-methods/sessions-read-by-key
 import { requestContext } from "../server-methods/sessions-read-cache.test-support.js";
 import { bindSessionRowProjection } from "../session-row-projection-access.js";
 import { createSessionRowProjection } from "../session-row-projection.js";
-import { placementTurnOwner } from "./placement-record.js";
-import type { WorkerSessionTurnClaim } from "./placement-store.js";
+import { placementTurnOwner, projectWorkerSessionTurnClaim } from "./placement-record.js";
 import {
   WorkerRunnerCapacityError,
   WorkerRunnerUnavailableError,
@@ -681,7 +680,8 @@ describe("worker turn launcher failure recovery", () => {
       const persistAbandonedPartial = vi.fn<
         NonNullable<WorkerTurnLauncherOptions["persistAbandonedPartial"]>
       >(async (claim) => {
-        const currentClaim = placements.get(SESSION_ID)?.turnClaim;
+        const current = placements.get(SESSION_ID);
+        const currentClaim = current && projectWorkerSessionTurnClaim(current);
         if (!currentClaim) {
           throw new Error("Expected the live interrupted turn claim");
         }
