@@ -23,6 +23,7 @@ export type ReplicaCell = {
   snapshot?: SessionActorHotState;
   entry?: SessionActorEntryFacts;
   transcript?: SessionActorTranscriptReplica;
+  transcriptBytes: number;
   predicateColumns?: SessionActorEntryFacts["predicateColumns"];
   generation?: string;
   reservation: number;
