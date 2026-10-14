@@ -183,11 +183,9 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
         controlUiTabs: [],
       });
       if (inspection === "before") {
-        const configReads = (await gateway.getRequests("config.get")).length;
         await gateway.deferNext("plugins.inspect");
         await gateway.emitGatewayEvent("plugins.changed", { generation: 17 });
         await gateway.waitForRequest("plugins.inspect", { after: inspectionReads });
-        await gateway.waitForRequest("config.get", { after: configReads });
       }
       const removalErrors = await page.evaluateHandle(() => {
         const errors = new Set<string>();
@@ -228,30 +226,25 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
         await gateway.rejectDeferred("plugins.inspect", missingPlugin);
       } else {
         const listReads = (await gateway.getRequests("plugins.list")).length;
-        const configReads = (await gateway.getRequests("config.get")).length;
         await gateway.setMethodResponse("plugins.inspect", { __mockError: missingPlugin });
         await gateway.emitGatewayEvent("plugins.changed", { generation: 17 });
         await gateway.waitForRequest("plugins.list", { after: listReads });
-        await gateway.waitForRequest("config.get", { after: configReads });
       }
       await captureScreenshot(page, `lifecycle-uninstall-inspection-${inspection}.png`);
+      // Keep reloads unavailable until feedback is checked, including any successor read.
+      await gateway.setMethodResponse(
+        "config.get",
+        withWarnings
+          ? { __mockError: { code: "UNAVAILABLE", message: refreshError } }
+          : configSnapshot(false),
+      );
       await gateway.setMethodResponse("plugins.list", initialInventory);
-      const refreshReads = await gateway.deferNext("config.get");
       await gateway.resolveDeferred("plugins.uninstall", {
         ok: true,
         pluginId: "calendar-plus",
         removed: ["config entry", "install record"],
         warnings: withWarnings ? warnings : [],
       });
-      await gateway.waitForRequest("config.get", { after: refreshReads });
-      if (withWarnings) {
-        await gateway.rejectDeferred("config.get", {
-          code: "UNAVAILABLE",
-          message: refreshError,
-        });
-      } else {
-        await gateway.resolveDeferred("config.get", configSnapshot(false));
-      }
       await page.getByRole("button", { name: "Install", exact: true }).waitFor();
       expect(
         await removalErrors.evaluate(({ errors, observer }) => {
@@ -281,6 +274,7 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
       await expect
         .poll(() => new URL(page.url()).pathname)
         .toBe(`/plugins/${calendarDiscoveryPlugin.id}`);
+      await gateway.setMethodResponse("config.get", configSnapshot(false));
       await gateway.deferNext("plugins.install");
       await page.getByRole("button", { name: "Install", exact: true }).click();
       expect((await gateway.waitForRequest("plugins.install", { after: 1 })).params).toEqual({
