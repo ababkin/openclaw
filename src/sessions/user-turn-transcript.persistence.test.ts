@@ -299,7 +299,6 @@ describe("persistUserTurnTranscript", () => {
         sessionKey: "agent:main:telegram:group:requesters",
         messageProvider: "telegram",
         senderId: "original",
-        memberRoleIds: ["member"],
       };
       const recorder = createUserTurnTranscriptRecorder({
         input: { requesterOrigin: mode === "forge" ? undefined : requesterOrigin },
@@ -324,7 +323,7 @@ describe("persistUserTurnTranscript", () => {
           if (mode === "in-place") {
             (metadata.senderIdentity as { id: string }).id = "forged";
             requesterOrigin.senderId = "forged";
-            requesterOrigin.memberRoleIds.push("admin");
+            requesterOrigin.sessionKey = "agent:main:replacement";
           }
           if (mode === "raw-redact") {
             delete metadata.senderId;
@@ -354,7 +353,6 @@ describe("persistUserTurnTranscript", () => {
                 sessionKey: "agent:main:telegram:group:requesters",
                 messageProvider: "telegram",
                 senderId: "original",
-                memberRoleIds: ["member"],
               },
             }),
       });
