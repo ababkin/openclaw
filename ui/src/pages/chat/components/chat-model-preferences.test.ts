@@ -1,12 +1,14 @@
 /* @vitest-environment jsdom */
 
 import { expectDefined } from "@openclaw/normalization-core";
-import { nothing, render } from "lit";
+import { createComponent, createSignal, merge } from "solid-js";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { createSessionsListResult } from "../../../test-helpers/chat-model.ts";
-import { renderChatModelControls } from "./chat-model-controls.tsx";
+import { mountSolid } from "../../../test-helpers/mount-solid.ts";
+import { flush } from "../../../test-helpers/solid-settle.ts";
+import { ChatModelControls } from "./chat-model-controls.tsx";
 
-type Props = Parameters<typeof renderChatModelControls>[0];
+type Props = Parameters<typeof ChatModelControls>[0];
 
 function controls(overrides: Partial<Props>) {
   const sessions = createSessionsListResult({ model: "primary", modelProvider: "example" });
@@ -22,9 +24,6 @@ function controls(overrides: Partial<Props>) {
   const onThinkingSelect = vi.fn(async () => true);
   const onFastModeSelect = vi.fn(async () => true);
   const container = document.createElement("div");
-  onTestFinished(() => {
-    render(nothing, container);
-  });
   const props: Props = {
     activeRunId: null,
     activeRunSessionKey: "main",
@@ -50,11 +49,14 @@ function controls(overrides: Partial<Props>) {
     onFastModeSelect,
     ...overrides,
   };
+  const [current, setCurrent] = createSignal(props);
+  const view = mountSolid(() => createComponent(ChatModelControls, merge(current)), { container });
+  onTestFinished(view.unmount);
   const update = (next: Partial<Props>) => {
     Object.assign(props, next);
-    render(renderChatModelControls(props), container);
+    setCurrent({ ...props });
+    flush();
   };
-  update({});
   return {
     container,
     update,

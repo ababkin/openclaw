@@ -1,6 +1,5 @@
 /* @vitest-environment jsdom */
 import type { UsersMentionableResult } from "@openclaw/gateway-protocol";
-import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HumanMention } from "../../lib/chat/chat-types.ts";
 import {
@@ -12,8 +11,8 @@ import {
   createComposerContainer,
   createComposerProps,
   findPrimaryButton,
+  renderComposerInto,
 } from "./chat-composer.test-support.ts";
-import { renderChatComposer } from "./components/chat-composer-render.test-support.ts";
 
 afterEach(resetMentionComposerFixture);
 
@@ -31,9 +30,9 @@ it("keeps ordinary edits around a selected person off the pane render path", () 
       mentions = selected;
     },
   });
-  const redraw = vi.fn(() => render(renderChatComposer({ ...props, draft, mentions }), container));
+  const redraw = vi.fn(() => renderComposerInto(container, { ...props, draft, mentions }));
   props.onRequestUpdate = redraw;
-  render(renderChatComposer(props), container);
+  renderComposerInto(container, props);
   const textarea = container.querySelector<HTMLTextAreaElement>("textarea")!;
   const edit = (value: string, start: number, end = start) => {
     textarea.setSelectionRange(start, end);
