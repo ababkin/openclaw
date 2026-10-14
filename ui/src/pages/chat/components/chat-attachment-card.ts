@@ -65,6 +65,7 @@ export function prepareAttachmentCardHeader(options: AttachmentCardHeaderOptions
     compactPreview: options.visualMode === "preview-with-favicon",
     formattedSize,
     metadata: [typeLabel, formattedSize].filter(Boolean).join(" · "),
+    downloadLabel: options.kind === "document" ? translate("chat.attachments.download") : "",
     downloadTitle: translate("chat.mediaPlayer.download", { filename: options.label }),
     expandLabel:
       options.expandLabel ?? translate("chat.attachments.expand", { filename: options.label }),
