@@ -1,6 +1,5 @@
 /* @vitest-environment jsdom */
 
-import { html, render } from "lit";
 import { afterEach, expect, it, vi } from "vitest";
 import { createComposerProps, resetComposerFixture } from "./chat-composer.test-support.ts";
 import { createAsyncQuestionPresentation } from "./components/chat-async-question.ts";
@@ -53,10 +52,9 @@ it.each(["draft", "focus"])(
     expect(panel.model.autoFocus).toBe(false);
     const container = document.createElement("div");
     document.body.append(container);
-    render(
-      html`<openclaw-chat-question-panel .props=${panel}></openclaw-chat-question-panel>`,
-      container,
-    );
+    const questionPanel = document.createElement("openclaw-chat-question-panel");
+    questionPanel.props = panel;
+    container.append(questionPanel);
     await (container.firstElementChild as HTMLElement & { updateComplete: Promise<unknown> })
       .updateComplete;
     expect(container.textContent).not.toContain("Optional · work can continue");

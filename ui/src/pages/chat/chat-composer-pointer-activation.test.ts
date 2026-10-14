@@ -1,17 +1,20 @@
 /* @vitest-environment jsdom */
 
-import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { i18n, t } from "../../i18n/index.ts";
-import { createComposerContainer, createComposerProps } from "./chat-composer.test-support.ts";
-import { renderChatComposer, resetChatComposerState } from "./components/chat-composer.tsx";
+import {
+  createComposerContainer,
+  createComposerProps,
+  renderComposerInto,
+} from "./chat-composer.test-support.ts";
+import { resetChatComposerState } from "./components/chat-composer.tsx";
 
-type ComposerProps = Parameters<typeof renderChatComposer>[0];
+type ComposerProps = Parameters<typeof renderComposerInto>[0];
 
 function renderComposer(overrides: Partial<ComposerProps> = {}): HTMLElement {
   const container = createComposerContainer();
   document.body.append(container);
-  render(renderChatComposer(createComposerProps(overrides)), container);
+  renderComposerInto(createComposerProps(overrides), container);
   return container;
 }
 

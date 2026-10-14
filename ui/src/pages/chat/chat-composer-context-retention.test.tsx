@@ -1,13 +1,13 @@
 /* @vitest-environment jsdom */
-import { render, nothing } from "lit";
 import { afterEach, expect, it, onTestFinished } from "vitest";
 import { flush } from "../../test-helpers/solid-settle.ts";
 import {
   createComposerContainer,
   createComposerProps,
   resetComposerFixture,
+  renderComposerInto,
+  unmountComposer,
 } from "./chat-composer.test-support.ts";
-import { renderChatComposer } from "./components/chat-composer.tsx";
 
 afterEach(() => resetComposerFixture());
 
@@ -43,9 +43,9 @@ it("keeps the context popover open and its usage link focused during live usage 
   });
   const view = { container: document.body.appendChild(createComposerContainer()) };
   onTestFinished(() => {
-    render(nothing, view.container);
+    unmountComposer(view.container);
   });
-  render(renderChatComposer(current), view.container);
+  renderComposerInto(current, view.container);
   const details = view.container.querySelector<HTMLDetailsElement>(".context-usage details");
   const usageLink = view.container.querySelector<HTMLAnchorElement>("[data-chat-provider-usage]");
   if (!details || !usageLink) {
@@ -87,7 +87,7 @@ it("keeps the context popover open and its usage link focused during live usage 
       },
     },
   };
-  render(renderChatComposer(current), view.container);
+  renderComposerInto(current, view.container);
   flush();
 
   expect(view.container.querySelector(".context-usage details")).toBe(details);

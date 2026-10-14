@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { render } from "lit";
 import { createComponent, createSignal } from "solid-js";
 import { afterEach, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
@@ -8,7 +7,7 @@ import { captureChatOutboxAdmission } from "../../lib/chat/outbox-store.ts";
 import { mountSolid } from "../../test-helpers/mount-solid.ts";
 import { flush } from "../../test-helpers/solid-settle.ts";
 import { chatItemGroups } from "./chat-agent-run-grouping.ts";
-import { renderChatQueue } from "./chat-composer-queue.test-support.ts";
+import { renderComposerQueueInto } from "./chat-composer.test-support.ts";
 import { handleChatGatewayEvent } from "./chat-gateway.ts";
 import type { ChatHistoryResult } from "./chat-history-snapshot.ts";
 import { loadChatHistory } from "./chat-history.ts";
@@ -142,8 +141,8 @@ it.each(["custody", "receipt", "retry", "remount"] as const)(
         }
         return extractText(message);
       };
-      render(
-        renderChatQueue({
+      renderComposerQueueInto(
+        {
           canAbort: true,
           queue: host.chatQueue,
           displayQueue: [...buildPendingInputQueueItems(display.queuedInputs), ...display.queue],
@@ -151,7 +150,7 @@ it.each(["custody", "receipt", "retry", "remount"] as const)(
             sending = steerQueuedChatMessage(host, id);
           },
           onQueueRemove: vi.fn(),
-        }),
+        },
         container,
       );
       const thread = projectTranscriptChain(

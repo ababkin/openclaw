@@ -1,9 +1,9 @@
 /* @vitest-environment jsdom */
-import { html, render } from "lit";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   renderComposerFixture as renderComposer,
   resetComposerFixture,
+  unmountComposer,
 } from "./chat-composer.test-support.ts";
 afterEach(() => resetComposerFixture());
 
@@ -29,7 +29,7 @@ describe("progress card refresh admission", () => {
         progressCardRefresh: { onRefresh },
       });
       onTestFinished(() => {
-        render(html``, view.container);
+        unmountComposer(view.container);
       });
       const refresh = view.container.querySelector<HTMLButtonElement>(
         ".session-progress-card__refresh",

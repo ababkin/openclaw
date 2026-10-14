@@ -1,18 +1,17 @@
-import { nothing, render } from "lit";
 import { createComponent, onCleanup } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { t } from "../../i18n/index.ts";
 import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { ControllerHost } from "../../lit/subscriptions-controller.ts";
-import { mountSolid } from "../../test-helpers/mount-solid.ts";
+import { cleanupSolid, mountSolid } from "../../test-helpers/mount-solid.ts";
 import { waitForSolid } from "../../test-helpers/solid-settle.ts";
 import {
   getChatAttachmentPreviewUrl,
   registerChatAttachmentPayload,
   releaseChatAttachmentPayloads,
 } from "./attachment-payload-store.ts";
-import { renderChatQueue } from "./chat-composer-queue.test-support.ts";
+import { renderComposerQueueInto, unmountComposerQueue } from "./chat-composer.test-support.ts";
 import { renderChatQueueSolid } from "./components/chat-composer-queue.tsx";
 import { createSolidRenderLifecycle } from "./solid-render-lifecycle.ts";
 import baseStyles from "../../styles/base.css?inline";
@@ -42,7 +41,8 @@ describe("composer queue", () => {
   });
 
   afterEach(() => {
-    render(nothing, container);
+    unmountComposerQueue(container);
+    cleanupSolid();
     container.remove();
     styles.remove();
     releaseChatAttachmentPayloads(attachments);
@@ -51,12 +51,12 @@ describe("composer queue", () => {
   });
 
   function draw(queue: ChatQueueItem[], editingId?: string) {
-    render(
-      renderChatQueue({
+    renderComposerQueueInto(
+      {
         queue,
         queuedEdit: { editingId: editingId ?? null, onCancel: vi.fn(), onEdit: vi.fn() },
         onQueueRemove: vi.fn(),
-      }),
+      },
       container,
     );
   }

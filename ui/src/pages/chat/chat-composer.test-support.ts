@@ -1,4 +1,4 @@
-import { render } from "lit";
+import { createComponent } from "solid-js";
 import { expect, onTestFinished, vi } from "vitest";
 import type { ApplicationContext } from "../../app/context.ts";
 import { i18n } from "../../i18n/index.ts";
@@ -7,9 +7,65 @@ import {
   createApplicationContextProvider,
   createApplicationGateway,
 } from "../../test-helpers/application-context.ts";
-import { renderChatComposer, resetChatComposerState } from "./components/chat-composer.tsx";
+import { createSolidApplicationContextProvider } from "../../test-helpers/solid-application-context.tsx";
+import { mountSolid } from "../../test-helpers/solid-render.tsx";
+import { renderChatQueueSolid } from "./components/chat-composer-queue.tsx";
+import { ChatComposer, resetChatComposerState } from "./components/chat-composer.tsx";
 
-type ComposerProps = Parameters<typeof renderChatComposer>[0];
+type ComposerProps = Parameters<typeof ChatComposer>[0];
+const composerViews = new Map<HTMLElement, ReturnType<typeof mountSolid<ComposerProps>>>();
+const composerWrappers = new WeakMap<
+  HTMLElement,
+  ReturnType<typeof createSolidApplicationContextProvider>["wrapper"]
+>();
+type QueueProps = Parameters<typeof renderChatQueueSolid>[0];
+const queueViews = new Map<HTMLElement, ReturnType<typeof mountSolid<QueueProps>>>();
+
+export function renderComposerQueueInto(props: QueueProps, container: HTMLElement) {
+  const previous = queueViews.get(container);
+  if (previous) {
+    previous.update({ ...props });
+    return;
+  }
+  queueViews.set(container, mountSolid(renderChatQueueSolid, { ...props }, container));
+  onTestFinished(() => unmountComposerQueue(container));
+}
+
+export function unmountComposerQueue(container: HTMLElement) {
+  const view = queueViews.get(container);
+  queueViews.delete(container);
+  view?.dispose();
+}
+
+export function renderComposerInto(props: ComposerProps, container: HTMLElement) {
+  const next = { ...props, renderRevision: {} };
+  const previous = composerViews.get(container);
+  if (previous) {
+    previous.update(next);
+    return;
+  }
+  const wrapper = composerWrappers.get(container);
+  const view = mountSolid(
+    (current: ComposerProps) =>
+      wrapper
+        ? createComponent(wrapper, {
+            get children() {
+              return createComponent(ChatComposer, current);
+            },
+          })
+        : createComponent(ChatComposer, current),
+    next,
+    container,
+  );
+  composerViews.set(container, view);
+  onTestFinished(() => unmountComposer(container));
+}
+
+export function unmountComposer(container: HTMLElement) {
+  const view = composerViews.get(container);
+  composerViews.delete(container);
+  view?.dispose();
+}
 
 export function createComposerProps(overrides: Partial<ComposerProps> = {}): ComposerProps {
   return {
@@ -41,7 +97,7 @@ export function createComposerProps(overrides: Partial<ComposerProps> = {}): Com
 export function renderComposerFixture(overrides: Partial<ComposerProps> = {}) {
   const container = createComposerContainer();
   const props = createComposerProps(overrides);
-  render(renderChatComposer(props), container);
+  renderComposerInto(props, container);
   return { container, props };
 }
 
@@ -61,7 +117,10 @@ export function createComposerContainer() {
     },
   };
   // SAFETY: Disconnected composer and transcript fixtures only consume these capabilities.
-  return createApplicationContextProvider(context as ApplicationContext);
+  const application = context as ApplicationContext;
+  const container = createApplicationContextProvider(application);
+  composerWrappers.set(container, createSolidApplicationContextProvider(application).wrapper);
+  return container;
 }
 
 export function findComposerButton(container: Element, label: string): HTMLButtonElement {
@@ -87,6 +146,12 @@ export function findPrimaryButton(container: Element): HTMLButtonElement {
 }
 
 export async function resetComposerFixture(afterStateReset?: () => void): Promise<void> {
+  for (const container of composerViews.keys()) {
+    unmountComposer(container);
+  }
+  for (const container of queueViews.keys()) {
+    unmountComposerQueue(container);
+  }
   resetChatComposerState();
   afterStateReset?.();
   localStorage.clear();

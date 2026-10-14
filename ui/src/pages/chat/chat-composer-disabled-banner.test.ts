@@ -1,9 +1,11 @@
 /* @vitest-environment jsdom */
 
-import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { renderComposerFixture, resetComposerFixture } from "./chat-composer.test-support.ts";
-import { renderChatComposer } from "./components/chat-composer.tsx";
+import {
+  renderComposerFixture,
+  resetComposerFixture,
+  renderComposerInto,
+} from "./chat-composer.test-support.ts";
 
 afterEach(async () => {
   await resetComposerFixture();
@@ -29,8 +31,8 @@ describe("archived session composer banner", () => {
     action.focus();
     const banner = action.parentElement;
 
-    render(
-      renderChatComposer({
+    renderComposerInto(
+      {
         ...props,
         disabledBanner: {
           kind: "composer-replacement",
@@ -38,7 +40,7 @@ describe("archived session composer banner", () => {
           actionLabel: "Unarchive",
           onAction: refreshedAction,
         },
-      }),
+      },
       container,
     );
 

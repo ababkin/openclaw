@@ -1,12 +1,15 @@
 /* @vitest-environment jsdom */
 
-import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import type { ModelCatalogEntry, SessionsListResult } from "../../api/types.ts";
 import { createSessionsListResult } from "../../test-helpers/chat-model.ts";
+import { mountSolid } from "../../test-helpers/solid-render.tsx";
 import { makeChatHost } from "./chat-host.test-support.ts";
 import { switchChatModel } from "./chat-session.ts";
-import { renderChatModelControls } from "./components/chat-model-controls.tsx";
+import { ChatModelControls } from "./components/chat-model-controls.tsx";
+
+type ModelControlProps = Parameters<typeof ChatModelControls>[0];
+const modelViews = new WeakMap<HTMLElement, ReturnType<typeof mountSolid<ModelControlProps>>>();
 
 const model: ModelCatalogEntry = {
   id: "gpt-5.6-sol",
@@ -23,30 +26,30 @@ const model: ModelCatalogEntry = {
 function renderControls(
   result: SessionsListResult,
   models: ModelCatalogEntry[],
-  options: Pick<
-    Parameters<typeof renderChatModelControls>[0],
-    "onModelSelect" | "onModelSetup" | "modelSelectionLocked"
-  > = {},
+  options: Pick<ModelControlProps, "onModelSelect" | "onModelSetup" | "modelSelectionLocked"> = {},
   container = document.createElement("div"),
 ) {
-  render(
-    renderChatModelControls({
-      activeRunId: null,
-      connected: true,
-      gatewayAvailable: true,
-      loading: false,
-      modelCatalog: models,
-      modelCatalogState: { hasSnapshot: true, status: "ready" },
-      modelSwitching: false,
-      sending: false,
-      sessionKey: "main",
-      selectedSession: result.sessions[0],
-      sessionsResult: result,
-      stream: null,
-      ...options,
-    }),
-    container,
-  );
+  const props: ModelControlProps = {
+    activeRunId: null,
+    connected: true,
+    gatewayAvailable: true,
+    loading: false,
+    modelCatalog: models,
+    modelCatalogState: { hasSnapshot: true, status: "ready" },
+    modelSwitching: false,
+    sending: false,
+    sessionKey: "main",
+    selectedSession: result.sessions[0],
+    sessionsResult: result,
+    stream: null,
+    ...options,
+  };
+  const previous = modelViews.get(container);
+  if (previous) {
+    previous.update(props);
+  } else {
+    modelViews.set(container, mountSolid(ChatModelControls, props, container));
+  }
   return container;
 }
 

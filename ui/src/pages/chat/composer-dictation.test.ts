@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
-import { render } from "lit";
 import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient, GatewayEventFrame } from "../../api/gateway.ts";
 import { loadSettings, patchSettings } from "../../app/settings.ts";
 import { GatewaySpeechPlayback } from "../../lib/speech-playback.ts";
+import { mountSolid } from "../../test-helpers/solid-render.tsx";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
-import { solidTemplate } from "./components/chat-composer-controls.ts";
 import { renderComposerVoiceButtonSolid } from "./components/chat-composer-controls.tsx";
 import { ComposerDictationSession } from "./composer-dictation-session.ts";
 import { ComposerDictationController, insertComposerDictation } from "./composer-dictation.ts";
@@ -160,6 +159,9 @@ function createButtonHarness() {
   const onTap = vi.fn();
   const container = document.createElement("div");
   document.body.append(container);
+  let view:
+    | ReturnType<typeof mountSolid<Parameters<typeof renderComposerVoiceButtonSolid>[0]>>
+    | undefined;
   const controller = new ComposerDictationController({
     client: createClient(),
     connected: true,
@@ -171,15 +173,17 @@ function createButtonHarness() {
     onTap,
   });
   function renderButton() {
-    render(
-      solidTemplate(renderComposerVoiceButtonSolid, {
-        connected: true,
-        readDictation: () => controller,
-        onDictationPointerDown: (event) => controller.handlePointerDown(event),
-        onToggleVoice: vi.fn(),
-      }),
-      container,
-    );
+    const props: Parameters<typeof renderComposerVoiceButtonSolid>[0] = {
+      connected: true,
+      readDictation: () => controller,
+      onDictationPointerDown: (event) => controller.handlePointerDown(event),
+      onToggleVoice: vi.fn(),
+    };
+    if (view) {
+      view.update(props);
+    } else {
+      view = mountSolid(renderComposerVoiceButtonSolid, props, container);
+    }
   }
   renderButton();
   const target = container.querySelector("button");

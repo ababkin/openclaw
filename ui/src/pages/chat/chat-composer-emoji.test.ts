@@ -1,4 +1,3 @@
-import { nothing, render } from "lit";
 import MarkdownIt from "markdown-it";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { TextareaTokenAnchor } from "../../components/textarea-token-anchor.ts";
@@ -12,8 +11,9 @@ import {
   createComposerContainer,
   createComposerProps,
   resetComposerFixture,
+  renderComposerInto,
+  unmountComposer,
 } from "./chat-composer.test-support.ts";
-import { renderChatComposer } from "./components/chat-composer.tsx";
 import { installChatComposerPickerDismissal } from "./components/chat-picker-overlay.ts";
 
 const controllers: NewSessionComposerTextareaController[] = [];
@@ -63,7 +63,7 @@ function fixture(kind: "chat" | "new", locked = false, requiresModifier = false)
     if (native) {
       native.unmount();
     } else {
-      render(nothing, container);
+      unmountComposer(container);
     }
     container.remove();
   });
@@ -91,7 +91,7 @@ function fixture(kind: "chat" | "new", locked = false, requiresModifier = false)
       return;
     }
     if (kind === "chat") {
-      render(renderChatComposer({ ...props, draft }), container);
+      renderComposerInto({ ...props, draft }, container);
     } else {
       nativeOptions = {
         agentId: "main",

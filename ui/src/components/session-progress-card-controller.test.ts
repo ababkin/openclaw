@@ -1,5 +1,4 @@
 import type { ProgressCardGetParams } from "@openclaw/gateway-protocol";
-import { html, LitElement } from "lit";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { ApplicationGateway } from "../app/gateway.ts";
 import { sessionProgressCardsForGateway } from "../lib/session-progress-cards.ts";
@@ -7,6 +6,73 @@ import { createApplicationGateway } from "../test-helpers/application-context.ts
 import { createTestGatewayClient } from "../test-helpers/gateway-client.ts";
 import { gatewayHelloForMethods } from "../test-helpers/gateway-methods.ts";
 import { SessionProgressCardController } from "./session-progress-card-controller.ts";
+
+type ControllerHost = ConstructorParameters<typeof SessionProgressCardController>[0];
+type Controller = Parameters<ControllerHost["addController"]>[0];
+
+class ProgressHost extends HTMLElement implements ControllerHost {
+  gateway!: ApplicationGateway;
+  target: ProgressCardGetParams | undefined;
+  readTarget: () => ProgressCardGetParams | null | undefined = () => this.target;
+  readonly controllers = new Set<Controller>();
+  readonly progress = new SessionProgressCardController(this, {
+    gateway: () => this.gateway,
+    target: () => this.readTarget(),
+  });
+  private pending: Promise<boolean> | undefined;
+
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+  }
+
+  addController(controller: Controller) {
+    this.controllers.add(controller);
+  }
+  removeController(controller: Controller) {
+    this.controllers.delete(controller);
+  }
+  connectedCallback() {
+    for (const controller of this.controllers) {
+      controller.hostConnected?.();
+    }
+    this.requestUpdate();
+  }
+  disconnectedCallback() {
+    for (const controller of this.controllers) {
+      controller.hostDisconnected?.();
+    }
+  }
+  get updateComplete() {
+    return this.pending ?? Promise.resolve(true);
+  }
+  get isUpdatePending() {
+    return this.pending !== undefined;
+  }
+  requestUpdate() {
+    this.pending ??= Promise.resolve().then(() => {
+      for (const controller of this.controllers) {
+        controller.hostUpdate?.();
+      }
+      this.render();
+      this.pending = undefined;
+      return true;
+    });
+  }
+  render() {
+    this.shadowRoot!.textContent = `${this.progress.card?.markdown ?? "Loading"} ${this.progress.error ?? ""} ${this.progress.refreshState ?? ""}`;
+  }
+}
+customElements.define("test-progress-controller-host", ProgressHost);
+
+function createProgressHost(gateway: ApplicationGateway, readTarget?: ProgressHost["readTarget"]) {
+  const host = new ProgressHost();
+  host.gateway = gateway;
+  if (readTarget) {
+    host.readTarget = readTarget;
+  }
+  return host;
+}
 
 describe("SessionProgressCardController", () => {
   it("redraws only the watched progress presentation while unrelated sessions change", async () => {
@@ -47,20 +113,8 @@ describe("SessionProgressCardController", () => {
       lastError: null,
       lastErrorCode: null,
     });
-    class ProgressHost extends LitElement {
-      target: ProgressCardGetParams | undefined;
-      readonly progress = new SessionProgressCardController(this, {
-        gateway: () => gateway,
-        target: () => this.target,
-      });
-      override render() {
-        return html`${this.progress.card?.markdown ?? "Loading"} ${this.progress.error}
-        ${this.progress.refreshState}`;
-      }
-    }
-    customElements.define("test-progress-scoped-render", ProgressHost);
-    const host = new ProgressHost();
-    const inactive = new ProgressHost();
+    const host = createProgressHost(gateway);
+    const inactive = createProgressHost(gateway);
     const target = { sessionKey: "agent:main:visible-progress" };
     host.target = target;
     document.body.append(host, inactive);
@@ -161,14 +215,9 @@ describe("SessionProgressCardController", () => {
         subscribeEvents: () => () => undefined,
       } as unknown as ApplicationGateway;
       let admitted = true;
-      class ProgressHost extends LitElement {
-        readonly progress = new SessionProgressCardController(this, {
-          gateway: () => gateway,
-          target: () => (admitted ? { sessionKey: "agent:main:connection-progress" } : null),
-        });
-      }
-      customElements.define(`test-progress-reconnect-${replaceClient}`, ProgressHost);
-      const host = new ProgressHost();
+      const host = createProgressHost(gateway, () =>
+        admitted ? { sessionKey: "agent:main:connection-progress" } : null,
+      );
       onTestFinished(() => host.remove());
       document.body.append(host);
       await host.updateComplete;
@@ -188,7 +237,7 @@ describe("SessionProgressCardController", () => {
       for (const listener of snapshots) {
         listener(gateway.snapshot);
       }
-      // The new history is still pending; no Lit update has had a chance to run.
+      // The new history is still pending; no host update has had a chance to run.
       expect(request).toHaveBeenCalledTimes(1);
       admitted = false;
       await host.updateComplete;
@@ -224,14 +273,7 @@ describe("SessionProgressCardController", () => {
       const store = sessionProgressCardsForGateway(gateway);
       const subscribe = vi.spyOn(store, "subscribe");
       const watch = vi.spyOn(store, "watch");
-      class ProgressHost extends LitElement {
-        readonly progress = new SessionProgressCardController(this, {
-          gateway: () => gateway,
-          target: () => target,
-        });
-      }
-      customElements.define(`test-progress-controller-${hasTarget}`, ProgressHost);
-      const host = new ProgressHost();
+      const host = createProgressHost(gateway, () => target);
       onTestFinished(() => {
         host.remove();
         vi.restoreAllMocks();
@@ -249,7 +291,7 @@ describe("SessionProgressCardController", () => {
         expect(request).toHaveBeenCalledTimes(hasTarget ? connections : 0);
         expect(active).toEqual({ snapshots: 1, events: 1 });
 
-        // Lit still flushes this update after disconnectedCallback has released the store.
+        // The host still flushes this update after disconnectedCallback has released the store.
         host.requestUpdate();
         expect(host.isUpdatePending).toBe(true);
         host.remove();
