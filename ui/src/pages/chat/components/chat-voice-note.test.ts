@@ -1,15 +1,16 @@
 /* @vitest-environment jsdom */
 
-import { render } from "lit";
 import { describe, expect, it } from "vitest";
-import { renderAssistantAttachments } from "./chat-message-attachments.ts";
+import { mountSolid } from "../../../test-helpers/solid-render.tsx";
+import { AssistantAttachments } from "./chat-message-attachments-solid.tsx";
 
 describe("incoming voice-note presentation", () => {
   it.each([true, false])("keeps incoming audio inline only for voice notes (%s)", (isVoiceNote) => {
     const container = document.createElement("div");
-    render(
-      renderAssistantAttachments(
-        [
+    mountSolid(
+      AssistantAttachments,
+      {
+        attachments: [
           {
             type: "attachment",
             attachment: {
@@ -23,11 +24,9 @@ describe("incoming voice-note presentation", () => {
             },
           },
         ],
-        {},
-        undefined,
-        undefined,
-        false,
-      ),
+        options: {},
+        inlinePlayback: false,
+      },
       container,
     );
     const player = container.querySelector("openclaw-chat-audio-player");

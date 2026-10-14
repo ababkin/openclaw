@@ -1,4 +1,3 @@
-import { html, render } from "lit";
 import { describe, expect, it } from "vitest";
 import "../../../styles.css";
 import "../../../styles/chat.ts";
@@ -26,11 +25,13 @@ async function mountDetailPanel(
   const container = createChatSidebarContainer();
   container.className = "side-panel__panel";
   container.style.cssText = "width:480px;height:320px;";
-  const renderDetail = (detail: SidebarContent) => html`<openclaw-chat-detail-panel
-    class="chat-sidebar"
-    .content=${detail}
-    .embedded=${true}
-  ></openclaw-chat-detail-panel>`;
+  const detailPanel = document.createElement("openclaw-chat-detail-panel");
+  detailPanel.className = "chat-sidebar";
+  detailPanel.embedded = true;
+  const renderDetail = (detail: SidebarContent) => {
+    detailPanel.content = detail;
+    return detailPanel;
+  };
   const files = host === "Files" ? document.createElement("openclaw-chat-files-panel") : null;
   if (files) {
     files.previews = [{ id: "preview", label: "Long preview", content }];
@@ -41,7 +42,7 @@ async function mountDetailPanel(
     };
     container.append(files);
   } else {
-    render(renderDetail(content), container);
+    container.append(renderDetail(content));
   }
   document.body.append(container);
   await files?.updateComplete;

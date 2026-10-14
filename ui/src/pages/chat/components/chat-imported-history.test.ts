@@ -1,12 +1,12 @@
-import { nothing, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { wrapExternalContent } from "../../../../../src/security/external-content.js";
 import { projectImportedMessageForDisplay } from "../../../lib/chat/imported-message-display.ts";
 import { resolveMessageDisplayMarkdown } from "../../../lib/chat/message-display.ts";
 import { extractText, extractTextCached } from "../../../lib/chat/message-extract.ts";
 import { normalizeMessage } from "../../../lib/chat/message-normalizer.ts";
-import { solidContent } from "../../../lit/solid-content.tsx";
-import { renderGroupedMessage } from "./chat-message-bubble.ts";
+import { cleanupSolid } from "../../../test-helpers/mount-solid.ts";
+import { mountSolid } from "../../../test-helpers/solid-render.tsx";
+import { GroupedMessage } from "./chat-message-bubble-view.tsx";
 import {
   prepareChatMessageRender,
   MessageActions,
@@ -19,7 +19,7 @@ const wrap = (text: string) =>
 const container = document.createElement("div");
 
 afterEach(() => {
-  render(nothing, container);
+  cleanupSolid();
   vi.unstubAllGlobals();
 });
 
@@ -65,11 +65,16 @@ describe.each(["user", "assistant"])("imported %s history presentation", (role) 
   it("renders the body as Markdown and uses it for reply and copy actions", async () => {
     const body = "Imported **answer**\n\n~~~ts\nconst answer = 42;\n~~~";
     const message = { role, content: wrap(body), __openclaw: { idempotencyKey: importKey } };
-    render(
-      renderGroupedMessage(prepareChatMessageRender(message), "imported", {
-        isStreaming: false,
-        showReasoning: false,
-      }),
+    const view = mountSolid(
+      GroupedMessage,
+      {
+        preparation: prepareChatMessageRender(message),
+        messageKey: "imported",
+        options: {
+          isStreaming: false,
+          showReasoning: false,
+        },
+      },
       container,
     );
     expect(container.querySelector(".chat-text strong")?.textContent).toBe("answer");
@@ -88,7 +93,8 @@ describe.each(["user", "assistant"])("imported %s history presentation", (role) 
       const writeText = vi.fn().mockResolvedValue(undefined);
       vi.stubGlobal("navigator", { clipboard: { writeText } });
       expect(details?.markdown).toBe(body);
-      render(solidContent(MessageActions, { details, options: { onReply } }), container);
+      view.dispose();
+      mountSolid(MessageActions, { details, options: { onReply } }, container);
       container.querySelector<HTMLButtonElement>(".chat-copy-btn")!.click();
       await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(body));
     }

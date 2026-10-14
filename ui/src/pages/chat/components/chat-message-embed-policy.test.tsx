@@ -1,17 +1,41 @@
 /* @vitest-environment jsdom */
 
-import { render } from "lit";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { solidContent } from "../../../lit/solid-content.tsx";
+import { mountSolid } from "../../../test-helpers/solid-render.tsx";
 import { groupMessages } from "../chat-thread-grouping.ts";
 import { buildMessageItems } from "../chat-thread-items.ts";
-import { renderGroupedMessage } from "./chat-message-bubble.ts";
-import {
-  renderMessageGroup,
-  renderMessageGroupContent,
-} from "./chat-message-group.test-support.ts";
+import type { GroupedMessageOptions } from "./chat-message-bubble-options.ts";
+import { GroupedMessage } from "./chat-message-bubble-view.tsx";
+import { MessageGroup, MessageGroupContent } from "./chat-message-group-view.tsx";
 import { prepareChatMessageRender } from "./chat-message-markdown.ts";
 import { StreamGroupParts } from "./chat-message-stream-view.tsx";
+
+type MessageSurfaceProps = {
+  surface: "persisted" | "streaming";
+  text: string;
+  options: Omit<GroupedMessageOptions, "isStreaming" | "showReasoning">;
+};
+
+function MessageSurface(props: MessageSurfaceProps) {
+  return props.surface === "streaming" ? (
+    <StreamGroupParts
+      parts={[
+        { kind: "stream", key: "message", text: props.text, startedAt: 1, isStreaming: true },
+      ]}
+      options={props.options}
+      presentation="standalone"
+    />
+  ) : (
+    <GroupedMessage
+      preparation={prepareChatMessageRender({
+        role: "assistant",
+        content: [{ type: "text", text: props.text }],
+      })}
+      messageKey="message"
+      options={{ ...props.options, isStreaming: false, showReasoning: false }}
+    />
+  );
+}
 
 describe("assistant message embed policy", () => {
   it.each(["persisted", "streaming"] as const)(
@@ -26,8 +50,9 @@ describe("assistant message embed policy", () => {
       );
       const host = document.createElement("div");
       document.body.append(host);
+      let view: ReturnType<typeof mountSolid<MessageSurfaceProps>> | undefined;
       onTestFinished(() => {
-        render(null, host);
+        view?.dispose();
         host.remove();
         vi.unstubAllGlobals();
       });
@@ -38,20 +63,12 @@ describe("assistant message embed policy", () => {
       ) => {
         const text = `[embed url="${url}" title="Synthetic video" /]`;
         const options = { allowExternalEmbedUrls: false, embedSandboxMode, sessionKey };
-        render(
-          surface === "streaming"
-            ? solidContent(StreamGroupParts, {
-                parts: [{ kind: "stream", key: "message", text, startedAt: 1, isStreaming: true }],
-                options,
-                presentation: "standalone",
-              })
-            : renderGroupedMessage(
-                prepareChatMessageRender({ role: "assistant", content: [{ type: "text", text }] }),
-                "message",
-                { ...options, isStreaming: false, showReasoning: false },
-              ),
-          host,
-        );
+        const props = { surface, text, options };
+        if (view) {
+          view.update(props);
+        } else {
+          view = mountSolid(MessageSurface, props, host);
+        }
         await vi.dynamicImportSettled();
         const card = host.querySelector("openclaw-youtube-video");
         expect(card).not.toBeNull();
@@ -107,24 +124,16 @@ describe("assistant message embed policy", () => {
       const host = document.createElement("div");
       const url = "https://example.test/widget";
       const text = `[embed url="${url}" title="Widget" /]\nRead the widget.`;
-      const message = { role: "assistant", content: [{ type: "text", text }] };
+      let view: ReturnType<typeof mountSolid<MessageSurfaceProps>> | undefined;
 
       for (const allowed of [false, true, false]) {
         const options = { allowExternalEmbedUrls: allowed, embedSandboxMode: "scripts" as const };
-        render(
-          surface === "streaming"
-            ? solidContent(StreamGroupParts, {
-                parts: [{ kind: "stream", key: "message", text, startedAt: 1, isStreaming: true }],
-                options,
-                presentation: "standalone",
-              })
-            : renderGroupedMessage(prepareChatMessageRender(message), "message", {
-                ...options,
-                isStreaming: false,
-                showReasoning: false,
-              }),
-          host,
-        );
+        const props = { surface, text, options };
+        if (view) {
+          view.update(props);
+        } else {
+          view = mountSolid(MessageSurface, props, host);
+        }
 
         const frame = host.querySelector("iframe");
         expect(frame).not.toBeNull();
@@ -135,13 +144,14 @@ describe("assistant message embed policy", () => {
     },
   );
   it.each([
-    { label: "grouped messages", renderGroup: renderMessageGroup },
-    { label: "run-frame message contents", renderGroup: renderMessageGroupContent },
-  ])("updates the authenticated widget's script policy when $label rerender", ({ renderGroup }) => {
+    { label: "grouped messages", Component: MessageGroup },
+    { label: "run-frame message contents", Component: MessageGroupContent },
+  ])("updates the authenticated widget's script policy when $label rerender", ({ Component }) => {
     const container = document.createElement("div");
+    let view: ReturnType<typeof mountSolid<Parameters<typeof MessageGroup>[0]>> | undefined;
     onTestFinished(async () => {
       await vi.dynamicImportSettled();
-      render(null, container);
+      view?.dispose();
     });
     let timestamp = 1000;
     const renderCanvas = (embedSandboxMode: "strict" | "scripts", prepend = false) => {
@@ -174,7 +184,12 @@ describe("assistant message embed policy", () => {
       if (group?.kind !== "group") {
         throw new Error("expected a prepared assistant message group");
       }
-      render(renderGroup(group, { showReasoning: true, embedSandboxMode }), container);
+      const props = { group, options: { showReasoning: true, embedSandboxMode } };
+      if (view) {
+        view.update(props);
+      } else {
+        view = mountSolid(Component, props, container);
+      }
     };
 
     renderCanvas("strict");

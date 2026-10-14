@@ -1,9 +1,11 @@
 /* @vitest-environment jsdom */
 
-import { render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { solidContent } from "../../../lit/solid-content.tsx";
-import { MessageAttachment } from "./chat-message-attachments-solid.tsx";
+import { mountSolid } from "../../../test-helpers/solid-render.tsx";
+import {
+  MessageAttachment,
+  type MessageAttachmentProps,
+} from "./chat-message-attachments-solid.tsx";
 import {
   releaseChatMediaResourceSubscriber,
   type AttachmentItem,
@@ -13,7 +15,7 @@ import type { SidebarContent } from "./chat-sidebar-content-types.ts";
 
 const observations: Array<{ element: Element; show: () => void }> = [];
 const subscribers = new Set<() => void>();
-const containers = new Set<HTMLElement>();
+const views = new Map<HTMLElement, ReturnType<typeof mountSolid<MessageAttachmentProps>>>();
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -36,14 +38,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const container of containers) {
-    render(null, container);
+  for (const [container, view] of views) {
+    view.dispose();
     container.remove();
   }
   for (const subscriber of subscribers) {
     releaseChatMediaResourceSubscriber(subscriber);
   }
-  containers.clear();
+  views.clear();
   subscribers.clear();
   observations.length = 0;
   vi.unstubAllGlobals();
@@ -63,22 +65,22 @@ function mount(
   presentation: "inline" | "card" | "preview" = "inline",
 ) {
   const container = document.body.appendChild(document.createElement("div"));
-  containers.add(container);
   let current = item;
-  const update = () =>
-    render(
-      solidContent(MessageAttachment, {
-        item: current,
-        options: { ...options, onRequestUpdate: update },
-        onOpenSidebar,
-        presentation,
-      }),
-      container,
-    );
+  const props = (): MessageAttachmentProps => ({
+    item: current,
+    options: { ...options, onRequestUpdate: update },
+    onOpenSidebar,
+    presentation,
+  });
+  function update() {
+    view.update(props());
+  }
   subscribers.add(update);
-  update();
+  const view = mountSolid(MessageAttachment, props(), container);
+  views.set(container, view);
   return {
     container,
+    unmount: view.dispose,
     replace(next: AttachmentItem) {
       current = next;
       update();
@@ -171,7 +173,7 @@ describe("nonimage attachment source admission", () => {
     expect(fetchMock).not.toHaveBeenCalled();
 
     const current = observations.at(-1);
-    render(null, view.container);
+    view.unmount();
     await settle();
     current?.show();
     await settle();
