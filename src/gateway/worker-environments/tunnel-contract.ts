@@ -198,6 +198,7 @@ export type WorkerWorkspaceReconcileRequest = {
     | {
         kind: "repository";
         authorize?: () => void;
+        markPhase?: (phase: string) => void;
         referenceManifestRef: string;
         prepareCheckpoint(
           payload: WorkerRepositoryCheckpointPayload,
