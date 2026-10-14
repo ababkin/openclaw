@@ -1244,7 +1244,20 @@ extension PostUpdateController {
             self.show()
             self.fail(
                 message: String(localized: "Gateway verification failed."),
-                details: String(localized: "The managed runtime does not match the updated Mac app."))
+                details: GatewayProcessManager.shared.lastFailureReason?.nonEmpty ??
+                    (resolution.installedCLI == nil
+                        ?
+                        String(
+                            localized: """
+                            The installed Gateway service command could not be inspected.
+                            Repair this Mac app's managed installation, then retry recovery.
+                            """)
+                        :
+                        String(
+                            localized: """
+                            The managed Gateway CLI is unavailable.
+                            Repair the installation selected by this Mac app, then retry recovery.
+                            """)))
             return false
         case .none:
             if !resolution.prepareLocalCompanion, !verifiedCompanion {

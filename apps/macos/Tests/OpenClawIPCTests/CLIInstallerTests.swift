@@ -8,10 +8,23 @@ import Testing
 struct CLIInstallerTests {
     @Test(arguments: [
         (#"{"status":"ok","warnings":["Plugin repair remains pending"]}"#, 0, true),
-        (#"{"status":"advisory","advisory":{"kind":"package-post-install-doctor","reason":"deferred-configured-plugin-repair","message":"Deferred","details":["Plugin repair remains pending"]}}"#, 86, true),
-        (#"{"status":"error","failureFacts":[{"message":"Required migration failed"}]}"#, 1, false),
+        (
+            #"{"status":"advisory","advisory":{"kind":"package-post-install-doctor","reason":"deferred-configured-plugin-repair","message":"Deferred","details":["Plugin repair remains pending"]}}"#,
+            86,
+            true),
+        (
+            #"{"status":"error","failureFacts":[{"check":"openclaw doctor","code":"required-migration","message":"Required migration failed"}]}"#,
+            1,
+            false),
         (#"{"status":"ok","maintenanceRefusal":{"kind":"deferred","reason":"agent-database-in-use"}}"#, 0, false),
-        (#"{"status":"ok","configWriteRefusal":{"reason":"authority-changed","message":"Required write refused","keys":["plugins"]}}"#, 0, false),
+        (
+            #"{"status":"ok","configWriteRefusal":{"reason":"authority-changed","message":"Required write refused","keys":["plugins"]}}"#,
+            0,
+            false),
+        (
+            #"{"status":"ok","failureFacts":[{"check":"doctor","code":"required-migration","message":"Required migration failed"}]}"#,
+            0,
+            false),
         (#"{"status":"ok"}"#, 1, false),
         (#"{"status":"advisory"}"#, 86, false),
         ("invalid JSON", 0, false),
@@ -26,15 +39,19 @@ struct CLIInstallerTests {
         if succeeds {
             #expect(try CLIInstaller.bundledDoctorDiagnostics(response).contains("Plugin repair remains pending"))
         } else {
-            #expect(throws: GatewayHostingError.self) { try CLIInstaller.bundledDoctorDiagnostics(response) }
+            #expect(throws: (any Error).self) { try CLIInstaller.bundledDoctorDiagnostics(response) }
         }
         var unsettled = response
         unsettled.exitCode = nil
         unsettled.timedOut = true
-        #expect(throws: GatewayHostingError.self) { try CLIInstaller.bundledDoctorDiagnostics(unsettled) }
+        #expect(throws: CLIInstaller.DoctorProcessesUnsettled.self) {
+            try CLIInstaller.bundledDoctorDiagnostics(unsettled)
+        }
         var missing = response
         missing.stdout = payload
-        #expect(throws: GatewayHostingError.self) { try CLIInstaller.bundledDoctorDiagnostics(missing) }
+        #expect(throws: CLIInstaller.DoctorProcessesUnsettled.self) {
+            try CLIInstaller.bundledDoctorDiagnostics(missing)
+        }
     }
 
     @Test func `managed install locations follow the app profile`() {

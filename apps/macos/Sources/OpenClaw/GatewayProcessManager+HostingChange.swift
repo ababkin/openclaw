@@ -23,7 +23,8 @@ extension GatewayProcessManager {
         } catch {
             guard admitted else { throw error }
             let failure = error.localizedDescription
-            if failure.contains(GatewayLaunchAgentManager.runtimePinSelectionChanged) { throw error }
+            if error is CLIInstaller.DoctorProcessesUnsettled ||
+                failure.contains(GatewayLaunchAgentManager.runtimePinSelectionChanged) { throw error }
             do {
                 try await operations.recover()
                 try await operations.verifyHealth()
@@ -209,6 +210,10 @@ extension GatewayProcessManager {
                 }))
         } catch {
             change.recoveryFailure = error.localizedDescription
+            if error is CLIInstaller.DoctorProcessesUnsettled {
+                self.desiredActive = false
+                self.fail(error.localizedDescription)
+            }
             throw error
         }
         do { try await BundledRuntime.garbageCollectAfterHealthy() } catch {

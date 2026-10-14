@@ -870,6 +870,13 @@ async function runCliWithPreparedOutputMode(
   }
   let doctorDatabasePreflight: DoctorDatabasePreflight | undefined;
   if (!isHelpOrVersionInvocation && normalizedInvocation.primary === "doctor") {
+    if (process.env.OPENCLAW_UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH?.trim() === "-") {
+      // The native transport parent must not admit local writers before its child owns Doctor.
+      const { tryRunDoctorResultBridge } = await import("./run-main-doctor-result.js");
+      if (await tryRunDoctorResultBridge(normalizedArgv)) {
+        return;
+      }
+    }
     // Debug capture can migrate shared state before Commander reaches Doctor.
     // Resolve the update guard after selectors settle, before any bootstrap writer.
     const { preflightUpdateDoctorCli } = await import("../commands/doctor-update-schema-guard.js");

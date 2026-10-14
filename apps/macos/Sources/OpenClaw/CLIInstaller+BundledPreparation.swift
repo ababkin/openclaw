@@ -24,7 +24,13 @@ extension CLIInstaller {
             let keys: [String]
         }
 
+        struct FailureFact: Decodable {
+            let code: String
+            let message: String
+        }
+
         let status: Status
+        let failureFacts: [FailureFact]?
         let warnings: [String]?
         let advisory: Advisory?
         let maintenanceRefusal: MaintenanceRefusal?
@@ -61,25 +67,41 @@ extension CLIInstaller {
         return try self.bundledDoctorDiagnostics(response)
     }
 
+    struct DoctorProcessesUnsettled: LocalizedError {
+        let message: String
+        var errorDescription: String? {
+            self.message
+        }
+    }
+
     static func bundledDoctorDiagnostics(_ response: ShellExecutor.ShellResult) throws -> String {
-        guard !response.timedOut, response.preflightError == nil,
-              response.exitCode == 0 || response.exitCode == 86,
+        let details = [response.preflightError, response.stderr, response.stdout, response.errorMessage]
+            .compactMap { $0?.nonEmpty }.first ?? "Doctor did not complete. Retry recovery."
+        let failure = String(localized: "Gateway recovery failed.") + " " + details.suffix(4000)
+        if let preflight = response.preflightError {
+            throw GatewayHostingError(message: preflight)
+        }
+        guard !response.timedOut, response.exitCode != nil,
               let finalLine = response.stdout.split(separator: "\n").last(where: {
                   $0.hasPrefix("OPENCLAW_UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH=")
               }),
               let result = try? JSONDecoder().decode(
                   BundledDoctorResult.self,
-                  from: Data(finalLine.dropFirst("OPENCLAW_UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH=".count).utf8)),
-              (result.status == .ok && response.exitCode == 0) ||
-              (result.status == .advisory && result.advisory?.kind == "package-post-install-doctor" &&
-                  result.advisory?.reason == "deferred-configured-plugin-repair"),
-              result.maintenanceRefusal == nil, result.configWriteRefusal == nil
+                  from: Data(finalLine.dropFirst("OPENCLAW_UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH=".count).utf8))
         else {
-            let details = [response.preflightError, response.stderr, response.stdout, response.errorMessage]
-                .compactMap { $0?.nonEmpty }.first ?? "Doctor did not complete. Retry recovery."
-            throw GatewayHostingError(message: String(localized: "Gateway recovery failed.") + " " + details
-                .suffix(4000))
+            throw DoctorProcessesUnsettled(message: failure +
+                " Keep the Gateway stopped; Doctor cleanup is unverified.")
         }
+        if let unsettled = result.failureFacts?.first(where: { $0.code == "doctor-processes-unsettled" }) {
+            throw DoctorProcessesUnsettled(message: unsettled.message)
+        }
+        guard (result.status == .ok && response.exitCode == 0) ||
+            (result.status == .advisory && response.exitCode == 86 &&
+                result.advisory?.kind == "package-post-install-doctor" &&
+                result.advisory?.reason == "deferred-configured-plugin-repair"),
+            result.maintenanceRefusal == nil, result.configWriteRefusal == nil,
+            (result.failureFacts ?? []).isEmpty
+        else { throw GatewayHostingError(message: failure) }
         return ((result.warnings ?? []) + [result.advisory?.message].compactMap(\.self) +
             (result.advisory?.details ?? []))
             .joined(separator: "\n")
