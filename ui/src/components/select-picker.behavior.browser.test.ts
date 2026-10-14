@@ -1,4 +1,4 @@
-import { html, render } from "lit";
+import { html, nothing, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   renderPicker,
@@ -18,7 +18,15 @@ const options: PickerOption[] = [
   })),
 ];
 
-afterEach(() => document.body.replaceChildren());
+const containers: HTMLElement[] = [];
+
+afterEach(async () => {
+  for (const container of containers.splice(0)) {
+    render(nothing, container);
+  }
+  document.body.replaceChildren();
+  await Promise.resolve();
+});
 
 async function mount(overrides: Partial<PickerParams<PickerOption>> = {}) {
   const params: PickerParams<PickerOption> = {
@@ -30,6 +38,7 @@ async function mount(overrides: Partial<PickerParams<PickerOption>> = {}) {
     ...overrides,
   };
   const container = document.createElement("div");
+  containers.push(container);
   document.body.append(container);
   const update = async (patch: Partial<PickerParams<PickerOption>>) => {
     Object.assign(params, patch);
