@@ -8,6 +8,7 @@ import type {
 import { GatewayRequestError, type GatewayBrowserClient } from "../api/gateway.ts";
 import { i18n } from "../i18n/index.ts";
 import { LinkReaderHovercardProvider } from "./link-reader-hovercard.ts";
+import { resolveLinkReaderTarget } from "./link-reader-target.ts";
 
 const ELEMENT_NAME = "test-openclaw-link-reader-hovercard-provider-" + crypto.randomUUID();
 customElements.define(ELEMENT_NAME, class extends LinkReaderHovercardProvider {});
@@ -65,7 +66,7 @@ function connect(
   provider: LinkReaderHovercardProvider,
   request = vi.fn().mockResolvedValue(preview()),
 ) {
-  provider.client = { request } as unknown as GatewayBrowserClient;
+  provider.client = { request, connected: true } as unknown as GatewayBrowserClient;
   return request;
 }
 function card() {
@@ -370,12 +371,15 @@ describe("openclaw-link-reader-hovercard-provider", () => {
     await hover(anchor);
     expect(request).toHaveBeenCalledTimes(2);
     leave(anchor);
+    await vi.advanceTimersByTimeAsync(120);
+    const signal = new AbortController().signal;
     for (let index = 1; index <= 100; index++) {
-      anchor.href = "https://github.com/openclaw/openclaw/issues/" + index;
-      await hover(anchor);
-      leave(anchor);
+      const target = resolveLinkReaderTarget(
+        "https://github.com/openclaw/openclaw/issues/" + index,
+        [github],
+      )!;
+      await provider.prefetch(target, signal);
     }
-    anchor.href = href;
     await hover(anchor);
     expect(request).toHaveBeenCalledTimes(103);
   });
