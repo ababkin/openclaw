@@ -59,13 +59,15 @@ describe("worker turn launcher failure recovery", () => {
   afterEach(() => cleanupWorkerTurnLauncherTest({ reuseReadWorkers: true }));
 
   it.each(["supervisor", "runtime"] as const)(
-    "keeps the typed node-loss cause through the %s result and workspace recovery",
+    "keeps the typed node-loss cause through the %s result and failed workspace recovery",
     async (source) => {
       await seedActivePlacement();
       const loss = new WorkerNodeLostError();
       const recovered = vi.fn(async () => {
         const [pending] = await placements.listPendingWorkspaceResultsAsync();
-        if (!pending) throw new Error("Expected pending workspace recovery");
+        if (!pending) {
+          throw new Error("Expected pending workspace recovery");
+        }
         await placements.failWorkspaceResultAndReleaseTurn(pending, loss);
       });
       const provider = createWorkerSessionTurnPlacementProvider({
@@ -106,7 +108,7 @@ describe("worker turn launcher failure recovery", () => {
       );
       await expect(attempt).rejects.toBeInstanceOf(WorkerNodeLostError);
       expect(recovered).toHaveBeenCalledOnce();
-      expect(placements.get(SESSION_ID)).toMatchObject({ state: "active", turnClaim: null });
+      expect(placements.get(SESSION_ID)).toMatchObject({ state: "failed", turnClaim: null });
     },
   );
 
