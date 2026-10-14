@@ -6,6 +6,21 @@ read_when: "A cloud dispatch, move, stop, or publication failed and you need the
 
 Symptoms you may see when dispatching to or running on a cloud worker, and the check that resolves each one.
 
+Setup secrets require protected, destination-bound shared-store entries and
+Crabbox 0.77.0 or newer on an owned coordinator Linux lease. An old CLI needs an
+update; a missing runtime helper needs reinstalling the matching complete Crabbox
+release. A coordinator-login error needs `crabbox login --url <broker-url>` on the
+Gateway host. A proxy-unavailable error needs checking the Gateway's secret proxy
+prerequisites and restarting the Gateway after repair. None of these errors falls
+back to plaintext or direct secret egress.
+
+For an unmapped repository secret, add its name to the selected profile's
+`settings.setupSecrets`. For a missing/unbound store entry, save it as a protected
+secret and set its exact HTTPS destination with
+`openclaw secrets store set <NAME> --allow-host <host>`. If a profile still uses
+`setupEnv`, run `openclaw doctor --fix` and resolve its reported missing bindings
+or conflicting values before retrying. Existing leases remain releasable.
+
 ## Troubleshooting
 
 - **“The node disconnected before the turn finished”** — the node host stopped or its connection was lost during execution. A command may have completed before the loss; check files and running processes before retrying actions with side effects. This error does not prove that the interrupted action failed.

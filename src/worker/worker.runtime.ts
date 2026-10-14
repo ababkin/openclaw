@@ -127,6 +127,8 @@ export async function runWorkerDescriptor(
     /** Supplied by the managed process owner, which closes state after its final turn. */
     environmentStateDir?: string;
     nativeInference?: NativeInferenceStartup;
+    /** Managed device folders retain the node-approved canonical target across startup. */
+    assertWorkspaceCurrent?: () => void;
   } = {},
 ): Promise<WorkerRuntimeResult> {
   if (
@@ -144,6 +146,7 @@ export async function runWorkerDescriptor(
     }
     assertNativeInferenceAssignment(options.nativeInference, descriptor);
   }
+  options.assertWorkspaceCurrent?.();
   const workspaceDir = await assertWorkerDirectory(descriptor.assignment.workspaceDir, "workspace");
   const workerContainmentRoot = descriptor.assignment.workerContainmentRoot
     ? await assertWorkerDirectory(descriptor.assignment.workerContainmentRoot, "containment root")
@@ -157,6 +160,7 @@ export async function runWorkerDescriptor(
       "worker workspace path escapes its assigned containment root; reprovision the worker workspace and retry",
     );
   }
+  options.assertWorkspaceCurrent?.();
   const environment = options.environmentStateDir
     ? undefined
     : await createWorkerRuntimeEnvironment(descriptor.admission.sessionId);
@@ -263,16 +267,18 @@ export async function runWorkerDescriptor(
             modelRef: descriptor.assignment.modelRef,
             computerContextEpoch,
           });
+    options.assertWorkspaceCurrent?.();
     const github = descriptor.assignment.github
-      ? await import("./github-binding.runtime.js").then(({ prepareWorkerGitHubEnvironment }) =>
-          prepareWorkerGitHubEnvironment({
+      ? await import("./github-binding.runtime.js").then(({ prepareWorkerGitHubEnvironment }) => {
+          options.assertWorkspaceCurrent?.();
+          return prepareWorkerGitHubEnvironment({
             binding: descriptor.assignment.github!,
             stateDir,
             turnId: descriptor.assignment.turnId,
             cwd: workspaceDir,
             signal: abortController.signal,
-          }),
-        )
+          });
+        })
       : undefined;
     try {
       turnStarted = true;
@@ -286,8 +292,9 @@ export async function runWorkerDescriptor(
         inference: _inference,
         ...assignment
       } = descriptor.assignment;
-      const runTurn = (nativeInference?: NativeRuntimeResolved) =>
-        runWorkerEmbeddedTurn({
+      const runTurn = (nativeInference?: NativeRuntimeResolved) => {
+        options.assertWorkspaceCurrent?.();
+        return runWorkerEmbeddedTurn({
           ...assignment,
           nativeInference,
           cwd: workspaceDir,
@@ -325,6 +332,7 @@ export async function runWorkerDescriptor(
           gatewayTools: connection,
           signal: abortController.signal,
         });
+      };
       if (descriptor.assignment.inference === "runtime-local") {
         const startup = options.nativeInference!;
         const { createNativeRuntime } = await import("./native-runtime.js");
