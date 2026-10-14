@@ -44,9 +44,10 @@ it("keeps modal code cold until requested and settles an abort before that code 
 
   const finished = withPromiseModalHost<string>(undefined, ({ render, finish }) => {
     render(
-      () => html`<openclaw-modal-dialog label="Current modal">
-        <button @click=${() => finish("done")}>Finish</button>
-      </openclaw-modal-dialog>`,
+      () =>
+        html`<openclaw-modal-dialog label="Current modal">
+          <button @click=${() => finish("done")}>Finish</button>
+        </openclaw-modal-dialog>`,
     );
   });
   view.resolve();

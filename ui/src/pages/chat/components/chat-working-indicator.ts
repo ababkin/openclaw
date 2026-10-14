@@ -88,13 +88,14 @@ export function renderChatWorkingIndicator(
     runningSubagents === 1
       ? t("chat.subagentsRunningOne")
       : t("chat.subagentsRunning", { count: String(runningSubagents) });
-  const renderSubagentsButton = (label: string) => html`<button
-    class="chat-working-indicator__subagents"
-    type="button"
-    @click=${() => options.onOpenSubagents?.()}
-  >
-    ${label}
-  </button>`;
+  const renderSubagentsButton = (label: string) =>
+    html`<button
+      class="chat-working-indicator__subagents"
+      type="button"
+      @click=${() => options.onOpenSubagents?.()}
+    >
+      ${label}
+    </button>`;
   const working = !waitingApproval && !options.startupLabel;
   // Providers report exact usage at response boundaries, not per text delta.
   // Keep the latest count visible while the run continues through tools.
