@@ -36,6 +36,8 @@ const ownerOptions = (root: Element) =>
 async function mountFilters(width: number, teammates = 0) {
   const { page } = await import("vitest/browser");
   await page.viewport(width, 560);
+  // A retained browser pointer must not open a tooltip as the keyboard fixture mounts.
+  await page.elementLocator(document.body).hover({ position: { x: width - 1, y: 1 } });
   // The app shell marks phone layouts; the filter panel becomes a bottom sheet there.
   document.body.classList.toggle("shell--mobile-nav", width < 560);
   onTestFinished(() => document.body.classList.remove("shell--mobile-nav"));
