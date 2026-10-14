@@ -1,3 +1,4 @@
+import { flush } from "@solidjs/signals";
 import { describe, expect, it, vi } from "vitest";
 // Control UI tests cover nested config edit rejection and draft preservation.
 import { renderObjectFixture, renderArrayFixture } from "../test-helpers/config-form-fixtures.tsx";
@@ -15,7 +16,7 @@ function expectElement<T extends Element>(element: T | null | undefined, label: 
 }
 
 describe("config form rejection integrity", () => {
-  it("opens an array draft when a parent rejects the automatic default", async () => {
+  it("opens an array draft when a parent rejects the automatic default", () => {
     const onPatch = vi.fn();
     const container = document.createElement("div");
     document.body.append(container);
@@ -39,14 +40,14 @@ describe("config form rejection integrity", () => {
       secondGroup.querySelector("openclaw-config-form-collection-draft"),
       "second auto-default array draft",
     );
-    await draft.updateComplete;
+    flush();
     expectElement(
       Array.from(secondGroup.querySelectorAll<HTMLButtonElement>("button")).find(
         (button) => button.textContent?.trim() === "Add",
       ),
       "second auto-default array add",
     ).click();
-    await draft.updateComplete;
+    flush();
     expect(draft.querySelector(".cfg-collection-draft")).not.toBeNull();
 
     const value = expectElement(
@@ -55,7 +56,7 @@ describe("config form rejection integrity", () => {
     );
     value.value = "x";
     value.dispatchEvent(new Event("input", { bubbles: true }));
-    await draft.updateComplete;
+    flush();
     expectElement(
       Array.from(draft.querySelectorAll<HTMLButtonElement>("button")).find(
         (button) => button.textContent?.trim() === "Add",
@@ -66,7 +67,7 @@ describe("config form rejection integrity", () => {
     container.remove();
   });
 
-  it("opens a map draft when a parent rejects the automatic entry", async () => {
+  it("opens a map draft when a parent rejects the automatic entry", () => {
     const onPatch = vi.fn();
     const container = document.createElement("div");
     document.body.append(container);
@@ -90,14 +91,14 @@ describe("config form rejection integrity", () => {
       secondMap.querySelector("openclaw-config-form-collection-draft"),
       "second auto-default map draft",
     );
-    await draft.updateComplete;
+    flush();
     expectElement(
       Array.from(secondMap.querySelectorAll<HTMLButtonElement>("button")).find(
         (button) => button.textContent?.trim() === "Add Entry",
       ),
       "second auto-default map add",
     ).click();
-    await draft.updateComplete;
+    flush();
     expect(draft.querySelector(".cfg-collection-draft")).not.toBeNull();
 
     const key = expectElement(
@@ -112,7 +113,7 @@ describe("config form rejection integrity", () => {
     key.dispatchEvent(new Event("input", { bubbles: true }));
     value.value = "{}";
     value.dispatchEvent(new Event("input", { bubbles: true }));
-    await draft.updateComplete;
+    flush();
     expectElement(
       Array.from(draft.querySelectorAll<HTMLButtonElement>("button")).find(
         (button) => button.textContent?.trim() === "Add Entry",
