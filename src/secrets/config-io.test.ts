@@ -5,6 +5,7 @@ import { withEnvAsync } from "../test-utils/env.js";
 import { createTrackedTempDirs } from "../test-utils/tracked-temp-dirs.js";
 import { writeTextFileAtomic } from "./config-io.js";
 
+// mock-isolation: Keep config runtime state outside this atomic text-write boundary test.
 vi.mock("../config/config.js", () => ({ createConfigIO: vi.fn() }));
 
 const tempDirs = createTrackedTempDirs();
