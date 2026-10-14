@@ -1,6 +1,6 @@
-import type { LitElement } from "lit";
 import { expect, it } from "vitest";
 import type { ChatQueueItem, ChatReplyTarget } from "../lib/chat/chat-types.ts";
+import type { ChatOutboxRecoveryElement } from "../pages/chat/chat-outbox-recovery.tsx";
 import { selectChatLayoutAction } from "../test-helpers/chat-layout-menu.ts";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import {
@@ -416,7 +416,7 @@ suite.define(() => {
         const restore = notice.getByRole("button", { name: "Restore", exact: true });
         if (change === "incognito") {
           await notice.evaluate(async (element) => {
-            const component = element as LitElement;
+            const component = element as ChatOutboxRecoveryElement;
             await component.updateComplete;
             await component.updateComplete;
           });
@@ -435,9 +435,9 @@ suite.define(() => {
           // Leaving Incognito reveals the retained source, never an adopted destination.
           await hostHandle.evaluate((host) => {
             host.selectedChatSessionIncognito = false;
-            const component = document.querySelector("#recovery-fence-fixture") as LitElement & {
-              identity: string;
-            };
+            const component = document.querySelector(
+              "#recovery-fence-fixture",
+            ) as ChatOutboxRecoveryElement;
             component.identity = "non-incognito-review-owner";
           });
         }

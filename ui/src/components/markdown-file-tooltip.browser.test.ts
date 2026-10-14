@@ -47,6 +47,7 @@ describe("file path tooltip", () => {
     expect(document.querySelectorAll("openclaw-tooltip[open]")).toHaveLength(1);
     await userEvent.keyboard("{Escape}");
     await page.elementLocator(anchor()).hover();
+    await expect.poll(card).not.toBeNull();
     await expect.element(copyButton()).toBeVisible();
     expect(card()?.textContent).not.toContain("Copied!");
     await page.elementLocator(anchor()).click();
@@ -120,6 +121,7 @@ describe("file path tooltip", () => {
       }
       if (dismissal === "reopen") {
         await page.elementLocator(anchor()).hover();
+        await expect.poll(card).not.toBeNull();
         await expect.element(copyButton()).toBeVisible();
       }
       reject(new Error("Denied"));
