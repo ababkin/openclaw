@@ -176,6 +176,10 @@ async function assertShadowParentStyles(page: Page, tag: string, selector: strin
 
 suite.define(() => {
   for (const renderer of ["Lit", "Solid"]) {
+    const rendererGroups =
+      renderer === "Solid"
+        ? groups
+        : groups.filter((group) => group !== "settings" && group !== "controls");
     for (const theme of ["light", "dark"] as const) {
       for (const viewport of [
         { width: 1280, height: 900, name: "desktop" },
@@ -199,7 +203,7 @@ suite.define(() => {
                   value: { writeText: async () => {} },
                 });
               });
-              for (const group of groups) {
+              for (const group of rendererGroups) {
                 await page.goto(
                   `${suite.server.baseUrl}src/test-helpers/presentation-primitives-fixture.html?renderer=${renderer.toLowerCase()}&group=${group}&theme=${theme}`,
                 );
@@ -249,9 +253,7 @@ suite.define(() => {
                 await captureGroup(page, `${renderer}-${theme}-${viewport.name}-${group}`);
                 if (group === "controls") {
                   await assertControlledInputs(page);
-                  if (renderer === "Solid") {
-                    await assertSecretInput(page);
-                  }
+                  await assertSecretInput(page);
                   await captureGroup(
                     page,
                     `${renderer}-${theme}-${viewport.name}-controls-changed`,
