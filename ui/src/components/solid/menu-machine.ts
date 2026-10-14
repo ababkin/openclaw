@@ -51,7 +51,6 @@ export type MenuBinding = {
     type?: "checkbox" | "radio",
     checked?: boolean,
     label?: string,
-    interceptLinkNavigation?: boolean,
   ): Record<string, unknown>;
   trigger(parentBinding?: MenuBinding, disabled?: boolean): Record<string, unknown>;
   content(): Record<string, unknown>;
@@ -122,7 +121,12 @@ export function useMenuMachine(
           ? value == null
             ? null
             : `${params.scope.id}:${value}`
-          : computed.highlightedId(params);
+          : // Submenu triggers keep the caller's logical value and their own DOM id.
+            ((value == null
+              ? null
+              : params.scope.query(
+                  `[data-menu-item="${CSS.escape(overlay.id)}"][data-value="${CSS.escape(value)}"]`,
+                )?.id) ?? computed.highlightedId(params));
       },
     },
     implementations: {
@@ -218,8 +222,6 @@ export function useMenuMachine(
     loopFocus: true,
     closeOnSelect: false,
     "aria-label": overlay.id,
-    // Keyboard links use the same cancelable selection and browser-intent path as clicks.
-    navigate: ({ node }) => node.click(),
     onOpenChange({ open }) {
       const restore = !open && containsComposed(overlay.surface, service.scope.getActiveElement());
       // Native sibling dismissal must not leave focus behind in the retired branch.
@@ -238,6 +240,8 @@ export function useMenuMachine(
       }
     },
     onSelect: ({ value }) => onSelect(value),
+    // Zag's default link click is not cancelable; native click keeps selection vetoable.
+    navigate: ({ node }) => queueMicrotask(() => node.click()),
   };
   const service = new VanillaMachine(adapted, props);
   createEffect(direction, (dir) => service.updateProps({ ...props, dir, open: overlay.open }));
@@ -368,7 +372,6 @@ export function useMenuMachine(
       type?: "checkbox" | "radio",
       checked = false,
       label = value,
-      interceptLinkNavigation = false,
     ) {
       const api = read();
       const result = type
@@ -386,6 +389,10 @@ export function useMenuMachine(
         onClick: (event: MouseEvent) => {
           const anchor = event.currentTarget;
           if (anchor instanceof HTMLAnchorElement) {
+            if (disabled) {
+              event.preventDefault();
+              return;
+            }
             if (
               !shouldHandleNavigationClick(event) ||
               (anchor.target !== "" && anchor.target !== "_self") ||
@@ -393,12 +400,15 @@ export function useMenuMachine(
             ) {
               return;
             }
-            if (interceptLinkNavigation) {
-              // Zag queues selection, so reserve same-tab navigation during the native click.
-              event.preventDefault();
-            }
+            // Selection is queued; prevent navigation now so its cancelable event can veto it.
+            event.preventDefault();
           }
           result.onClick?.(event);
+        },
+        onContextMenu: (event: MouseEvent) => {
+          if (event.currentTarget instanceof HTMLAnchorElement) {
+            event.stopPropagation();
+          }
         },
         onPointerMove: (event: PointerEvent) => {
           if (event.movementX === 0 && event.movementY === 0) {

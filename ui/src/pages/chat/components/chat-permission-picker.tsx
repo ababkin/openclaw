@@ -69,8 +69,7 @@ export function ChatPermissionPicker(props: ChatPermissionPickerProps) {
       id: "learn-more",
       label: t("common.learnMore"),
       href: PERMISSION_MODES_DOCS_URL,
-      target: EXTERNAL_LINK_TARGET,
-      rel: buildExternalLinkRel(),
+      attributes: { target: EXTERNAL_LINK_TARGET, rel: buildExternalLinkRel() },
       class: "chat-controls__permission-learn-more learn-more-link",
     },
     ...PERMISSION_OPTIONS.map((mode, index): MenuItem => {

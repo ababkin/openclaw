@@ -43,11 +43,15 @@ it.each([false, true])("preserves native link intent (routing=%s)", async (routi
     },
   });
   const prevented: boolean[] = [];
+  let suppressNative = true;
+  const initialHash = window.location.hash;
   view.container.addEventListener("click", (event) => {
     if (event.target instanceof Element && event.target.closest("a")) {
       prevented.push(event.defaultPrevented);
-      // Observe the primitive's decision before suppressing browser navigation in this fixture.
-      event.preventDefault();
+      // Modified gestures stay native; same-tab clicks below exercise the real cancellation path.
+      if (suppressNative) {
+        event.preventDefault();
+      }
     }
   });
   await openMenu();
@@ -76,10 +80,11 @@ it.each([false, true])("preserves native link intent (routing=%s)", async (routi
   link.dispatchEvent(canceledClick);
   expect(prevented.at(-1)).toBe(true);
 
+  suppressNative = false;
   await userEvent.click(link);
   await expect.poll(() => selections).toBe(1);
   expect(navigate.mock.calls).toEqual(routing ? [[{ href: "#settings", value: "settings" }]] : []);
-  expect(prevented.at(-1)).toBe(routing);
+  expect(prevented.at(-1)).toBe(true);
   await phase(surface(), "hidden");
 
   await openMenu();
@@ -88,6 +93,7 @@ it.each([false, true])("preserves native link intent (routing=%s)", async (routi
   await expect.poll(() => selections).toBe(2);
   expect(navigate).toHaveBeenCalledTimes(routing ? 1 : 0);
   expect(view.handle.overlay.open).toBe(true);
+  expect(window.location.hash).toBe(initialHash);
   cancel = false;
   link.focus();
   await userEvent.keyboard("{Enter}");
