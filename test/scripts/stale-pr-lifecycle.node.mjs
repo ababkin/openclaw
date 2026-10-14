@@ -160,6 +160,49 @@ function harness(seed = snapshot(), onComment) {
 }
 
 describe("Barnacle PR inactivity", () => {
+  for (const [oldUser, oldApp, newUser, newApp] of [
+    [257215752, 2729701, 264559031, 2971289],
+    [264559031, 2971289, 257215752, 2729701],
+  ]) {
+    it(`reuses an authenticated close receipt across app failover ${oldApp} to ${newApp}`, async () => {
+      const seed = snapshot();
+      seed.comments.push({
+        ...comment(99, closeMessage, RECENT),
+        user: { id: oldUser, type: "Bot" },
+        performed_via_github_app: { id: oldApp },
+      });
+      const h = harness(seed);
+      h.options.github.rest.issues.get = async () => ({ data: { closed_by: { id: newUser } } });
+      const result = await runStalePullRequests({
+        ...h.options,
+        expectedAppId: newApp,
+        dryRun: false,
+      });
+      assert.equal(result.closed, 1);
+      assert.deepEqual(h.writes, ["close"]);
+    });
+  }
+
+  it("rejects an unexpected app on a newly posted close receipt", async () => {
+    const h = harness();
+    await assert.rejects(
+      runStalePullRequests({ ...h.options, expectedAppId: 2971289, dryRun: false }),
+      /Close comment readback mismatch/,
+    );
+    assert.deepEqual(h.writes, ["close-comment"]);
+  });
+
+  for (const user of [human, bot]) {
+    it(`never reuses an unauthenticated ${user.type} close receipt`, () => {
+      const seed = snapshot();
+      seed.comments.push({
+        ...comment(99, closeMessage, OLD, user),
+        performed_via_github_app: { id: 1 },
+      });
+      assert.equal(evaluatePullRequest(seed, NOW).closeComment, undefined);
+    });
+  }
+
   it("rejects human copies and mismatched app identities as warning authority", () => {
     for (const copied of [human, bot]) {
       const seed = snapshot();

@@ -476,10 +476,12 @@ async function mutate(github, checksGithub, mutationGithub, expectedAppId, io, d
     progress.attempted = true;
     return io.call(method, params);
   };
-  const validComment = (comment, body) =>
+  // Failover may reuse another authenticated Barnacle receipt; new comments
+  // must come from this run's selected app before any further mutation.
+  const validComment = (comment, body, existing = false) =>
     comment.body === body &&
     trustedBarnacle(comment) &&
-    comment.performed_via_github_app.id === expectedAppId;
+    (existing || comment.performed_via_github_app.id === expectedAppId);
   const base = { issue_number: decision.number };
   try {
     if (decision.action === "unmark") {
@@ -517,7 +519,9 @@ async function mutate(github, checksGithub, mutationGithub, expectedAppId, io, d
       const { data: stored } = await io.call(github.rest.issues.getComment, {
         comment_id: commentId,
       });
-      if (!validComment(stored, closeMessage)) throw new Error("Close comment readback mismatch");
+      if (!validComment(stored, closeMessage, Boolean(checked.closeComment))) {
+        throw new Error("Close comment readback mismatch");
+      }
       const final = evaluatePullRequest(
         await snapshotOf(github, checksGithub, io, decision.number),
         now(),
