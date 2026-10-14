@@ -21,6 +21,10 @@ Native video smoke coverage uses four shards of four providers. Each provider ha
 Broad PRs retain their compact selected-owner Node plan when time-based splitting
 would exceed the 130-row matrix cap. See [Node test lanes](/ci/scope-and-routing/node-test-lanes).
 
+Agent auth-store admission and configured model-owner changes explicitly select
+the Gateway agent-config readiness suite. Its lazy startup path is not fully
+visible to the bounded import graph; the owner watch preserves overlap coverage.
+
 This page is an index. CI is documented on nine pages, one per reader
 job. Open the page that matches your task.
 
@@ -37,7 +41,7 @@ Default fork first attempts run their existing core lint stripes on Blacksmith16
 no-op events before runner allocation and concurrency, keeping automation on
 GitHub-hosted runners.
 
-PR jobs run to completion after a sibling failure. `pr-failure-report` compares
+PR jobs and independent checks run to completion after a failure, including forks and retries. Setup, planning, build dependencies, cancellation, and watchdog deadlines still stop work that cannot safely proceed. Failing runs therefore take longer and use more runner time; successful runs keep the same selected checks, job names, and concurrency. `pr-failure-report` compares
 every failed or timed-out job with the newest completed scheduled main CI run
 and publishes a **pre-existing**, **new**, or **unknown** classification in its
 summary and `openclaw/ci-gate`, with machine-readable JSON output. Reasons identify
