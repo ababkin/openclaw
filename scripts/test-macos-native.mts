@@ -8,7 +8,6 @@ import { runWithFailedTrailer } from "./lib/failed-trailer.mts";
 import { runManagedCommand, waitForManagedProcessGroupExit } from "./lib/managed-child-process.mts";
 
 function validateSwiftTestingCompletion(eventStreamPath: string, expectedFilter?: string): void {
-  const selected = expectedFilter ? new RegExp(expectedFilter) : undefined;
   const functions = new Set<string>();
   const started = new Set<string>();
   const completed = new Set<string>();
@@ -38,7 +37,8 @@ function validateSwiftTestingCompletion(eventStreamPath: string, expectedFilter?
         record.payload.kind === "function" &&
         "id" in record.payload &&
         typeof record.payload.id === "string" &&
-        selected?.test(record.payload.id)
+        expectedFilter !== undefined &&
+        record.payload.id.includes(expectedFilter)
       ) {
         functions.add(record.payload.id);
       }
@@ -80,7 +80,7 @@ function validateSwiftTestingCompletion(eventStreamPath: string, expectedFilter?
       phase = "ended";
     }
   }
-  if (phase !== "ended" || (selected && completed.size === 0)) {
+  if (phase !== "ended" || (expectedFilter !== undefined && completed.size === 0)) {
     throw new Error("Swift Testing did not finish its run");
   }
 }

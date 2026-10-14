@@ -8,7 +8,6 @@ import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { z } from "zod";
 import { ConfigMutationConflictError } from "../config/mutation-conflict.js";
 import { hasCommandProcessCleanupError } from "../process/exec-result.js";
-import { defaultRuntime } from "../runtime.js";
 import { collectNestedErrorCandidates } from "./error-graph-internal.js";
 import { formatErrorMessage } from "./errors.js";
 import {
@@ -463,6 +462,7 @@ export async function writeUpdatePostInstallDoctorResult(params: {
   const result = normalizeUpdatePostInstallDoctorResult(params.result);
   if (params.resultPath === "-") {
     // Native update owners consume the final classified result after the child settles.
+    const { defaultRuntime } = await import("../runtime.js");
     defaultRuntime.writeStdout(
       `${UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH_ENV}=${JSON.stringify(result)}`,
     );
