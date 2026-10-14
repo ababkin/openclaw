@@ -320,6 +320,8 @@ The app drains its producer and runs Doctor through the selected runtime before
 restarting the Gateway. Doctor owns core migrations and configured plugin host-link
 repair; the app owns service publication and activation. Required repair refusals
 keep recovery pending and restore the previous service when native custody permits.
+If Doctor cleanup cannot be confirmed, the app keeps the Gateway stopped and recovery
+pending; preserve the reported custody diagnostics before retrying.
 Conditional plugin warnings remain visible, with their pending repair records retained.
 It verifies health before removing old builds. A paused Gateway stays paused.
 Seeded installations never run npm self-update; update OpenClaw.app to update
@@ -348,10 +350,9 @@ the release app's Keychain items. See
 
 ### Existing app-managed Node services
 
-For the default profile after onboarding, the app migrates its exact-version
-Node installation in two separate attempts. If the installed version differs
-from the bundled version, the existing managed updater first updates the Node
-installation to the app's version. The core updater owns backups, rollback, and
+For the default profile after onboarding, the app migrates an app-managed Node
+installation at the app's version in two separate attempts. An older installation
+first uses its existing managed updater to reach the app's version. The core updater owns backups, rollback, and
 database migrations. A failed update leaves the runtime on Node and shows the
 existing update failure and Retry window.
 
@@ -392,12 +393,17 @@ the LaunchAgent is absent. This applies to default and named profiles using an
 exact or unset install policy. While paused, the app only records the hosting
 preference; it does not update, seed, or install a Gateway.
 
-On Resume, the app uses that Node installation's core updater to reach the app's
+On Resume, an older Node installation uses its core updater to reach the app's
 version without restarting a service. It then seeds Bun, installs the service,
 and verifies health in the same startup attempt. If the runtime switch fails,
 the app reinstalls and verifies the same-version Node service and shows the
 update failure with Retry. Fresh profiles retain app hosting; channel policies,
 attach-only profiles, and independently managed installations are not adopted.
+
+A compatible newer Node installation resumes through its existing selected CLI;
+the app does not downgrade it or switch it to the app's older bundled runtime.
+Health verification, required migration completion, and current runtime ownership
+still govern recovery completion.
 
 ## Version compatibility
 
