@@ -29,7 +29,7 @@ export function AppearanceBackground(props: AppearanceBackgroundProps) {
   });
   onCleanup(() => controller.dispose());
   return (
-    <openclaw-appearance-background ref={host}>
+    <openclaw-appearance-background ref={(element) => (host = element)}>
       <SessionBackground
         class="settings-background-preview"
         data-background-preview-canvas

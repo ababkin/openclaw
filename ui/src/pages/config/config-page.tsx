@@ -279,7 +279,7 @@ export function ConfigPage(props: ConfigPageProps) {
   });
   createEffect(revision, () => controller.afterCommit());
   return (
-    <openclaw-config-page ref={host}>
+    <openclaw-config-page ref={(element) => (host = element)}>
       <Show when={props.pageId !== "memory"}>
         <SettingsPageHeader
           title={titleForRoute(props.pageId)}
