@@ -37,7 +37,7 @@ function captureProgressInsert() {
   const database = openOpenClawStateDatabase(options);
   const prepare = database.db.prepare.bind(database.db);
   let captured: { sql: string; parameters: SQLInputValue[] } | undefined;
-  vi.spyOn(database.db, "prepare").mockImplementation((sql) => {
+  vi.spyOn(database.db, "prepare").mockImplementation((sql: string) => {
     const statement = prepare(sql);
     if (sql.startsWith('insert into "outbound_message_progress"')) {
       const capture = (parameters: SQLInputValue[]) => {
