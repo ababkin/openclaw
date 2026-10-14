@@ -213,7 +213,6 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
         "Removed all plugin entries owned by the calendar-plus package.",
       ] as const;
       const refreshError = "Configuration reload failed after removal.";
-      await gateway.deferNext("config.get");
       const removing = page.getByRole("button", { name: "Uninstall Calendar Plus", exact: true });
       await expect.poll(() => removing.getAttribute("aria-busy")).toBe("true");
       expect(await removing.locator(".btn__spinner").count()).toBe(1);
@@ -233,20 +232,19 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
       }
       await captureScreenshot(page, `lifecycle-uninstall-inspection-${inspection}.png`);
       await gateway.setMethodResponse("plugins.list", initialInventory);
+      // Background reads must see the same outage as the post-removal refresh.
+      await gateway.setMethodResponse(
+        "config.get",
+        withWarnings
+          ? { __mockError: { code: "UNAVAILABLE", message: refreshError } }
+          : configSnapshot(false),
+      );
       await gateway.resolveDeferred("plugins.uninstall", {
         ok: true,
         pluginId: "calendar-plus",
         removed: ["config entry", "install record"],
         warnings: withWarnings ? warnings : [],
       });
-      if (withWarnings) {
-        await gateway.rejectDeferred("config.get", {
-          code: "UNAVAILABLE",
-          message: refreshError,
-        });
-      } else {
-        await gateway.resolveDeferred("config.get", configSnapshot(false));
-      }
       await page.getByRole("button", { name: "Install", exact: true }).waitFor();
       expect(
         await removalErrors.evaluate(({ errors, observer }) => {
@@ -276,6 +274,7 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
       await expect
         .poll(() => new URL(page.url()).pathname)
         .toBe(`/plugins/${calendarDiscoveryPlugin.id}`);
+      await gateway.setMethodResponse("config.get", configSnapshot(false));
       await gateway.deferNext("plugins.install");
       await page.getByRole("button", { name: "Install", exact: true }).click();
       expect((await gateway.waitForRequest("plugins.install", { after: 1 })).params).toEqual({
