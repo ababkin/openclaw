@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterAll, it, expect } from "vitest";
 import { makeAgentAssistantMessage } from "../../agents/test-helpers/agent-message-fixtures.js";
 import {
@@ -18,7 +19,7 @@ function appendTranscriptMessage(params: {
   sessionId: string;
   storePath: string;
   idempotencyKey: string;
-  message: Record<string, unknown>;
+  message: object;
 }) {
   const result = appendTranscriptMessageSync(
     {
@@ -102,9 +103,10 @@ it.each(["", "Partial reply"])(
     await persist();
     await persist();
     const lines = await loadTranscriptEvents(scope);
-    const results = lines.flatMap((line) =>
-      line.type === "message" && line.message?.role === "toolResult" ? [line.message] : [],
+    const messages = lines.flatMap((line) =>
+      isRecord(line) && line.type === "message" && isRecord(line.message) ? [line.message] : [],
     );
+    const results = messages.filter((message) => message.role === "toolResult");
     expect(results).toMatchObject([
       { toolCallId: "done", isError: false },
       { toolCallId: "lost-a", isError: true, content: [{ text: missingToolResultText }] },
@@ -112,11 +114,8 @@ it.each(["", "Partial reply"])(
     ]);
     expect(results).toHaveLength(3);
     expect(
-      lines.filter(
-        (line) =>
-          line.type === "message" &&
-          line.message?.role === "assistant" &&
-          JSON.stringify(line.message).includes('"text":'),
+      messages.filter(
+        (message) => message.role === "assistant" && JSON.stringify(message).includes('"text":'),
       ),
     ).toHaveLength(text ? 1 : 0);
   },

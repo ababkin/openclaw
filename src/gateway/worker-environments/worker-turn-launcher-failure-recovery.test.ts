@@ -678,8 +678,15 @@ describe("worker turn launcher failure recovery", () => {
       const finishPartial = createDeferred();
       const warning = vi.spyOn(rootLogger, "logWarn").mockImplementation(() => {});
       onTestFinished(() => warning.mockRestore());
-      const persistAbandonedPartial = vi.fn(async (claim: WorkerSessionTurnClaim) => {
-        expect(placements.validateTurnClaim(claim)).toBe(true);
+      const persistAbandonedPartial = vi.fn<
+        NonNullable<WorkerTurnLauncherOptions["persistAbandonedPartial"]>
+      >(async (claim) => {
+        const currentClaim = placements.get(SESSION_ID)?.turnClaim;
+        if (!currentClaim) {
+          throw new Error("Expected the live interrupted turn claim");
+        }
+        expect(currentClaim).toMatchObject({ sessionId: claim.sessionId, runId: claim.runId });
+        expect(placements.validateTurnClaim(currentClaim)).toBe(true);
         partialStarted.resolve();
         await finishPartial.promise;
         if (saveRejects) {

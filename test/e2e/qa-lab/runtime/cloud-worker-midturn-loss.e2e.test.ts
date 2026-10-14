@@ -48,6 +48,7 @@ it.skipIf(process.platform === "win32")(
     void toolEntered.promise.catch(() => {});
     const completed = createDeferred();
     const originalTerminal = createDeferred();
+    void originalTerminal.promise.catch(() => {});
     void completed.promise.catch(() => {});
     const runStarts = new Set<string>();
     const terminals: Array<{ runId: string; phase: string; yielded?: boolean }> = [];
@@ -69,8 +70,7 @@ it.skipIf(process.platform === "win32")(
         `[midtool-node-loss] ${JSON.stringify({ stage, toolRequests, verificationRequests, runStarts: [...runStarts], terminals, providerErrors: providerErrors.map(String), processErrors: processErrors.map(String), hostLogs: Object.fromEntries(hostLogs) })}\n${gatewayLogs().slice(-12000)}\n`,
       );
     };
-    context.signal.addEventListener("abort", diagnose, { once: true });
-    context.onTestFinished(() => context.signal.removeEventListener("abort", diagnose));
+    context.onTestFailed(diagnose);
     await runQaGatewayTestFixture(
       context,
       async ({ signal, createTempDir }) => {
@@ -239,13 +239,14 @@ it.skipIf(process.platform === "win32")(
                   runStarts.add(payload.runId);
                 }
                 if (payload.data?.phase === "end" || payload.data?.phase === "error") {
-                  if (payload.runId === RUN_ID) {
-                    originalTerminal.resolve();
-                  }
                   if (payload.data.phase === "error") {
-                    completed.reject(
-                      new Error(`worker turn failed: ${JSON.stringify(event.payload)}`),
-                    );
+                    const error = new Error(`worker turn failed: ${JSON.stringify(event.payload)}`);
+                    if (payload.runId === RUN_ID) {
+                      originalTerminal.reject(error);
+                    }
+                    completed.reject(error);
+                  } else if (payload.runId === RUN_ID) {
+                    originalTerminal.resolve();
                   }
                   process.stderr.write(
                     `[midtool-node-loss] lifecycle ${payload.data.phase} ${payload.runId}\n`,
