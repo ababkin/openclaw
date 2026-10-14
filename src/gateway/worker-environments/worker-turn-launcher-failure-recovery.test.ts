@@ -80,6 +80,7 @@ describe("worker turn launcher failure recovery", () => {
           acknowledgeCredentialDelivery: async () => true,
           startTunnel: async () =>
             createWorkerTurnTunnel({
+              reconcileWorkspace: reconcileUnchangedLocalWorkspace,
               launchTurn: async (request) => {
                 request.onDispatchReady?.();
                 await placements.markWorkspaceResultPending(request.turnClaim);
