@@ -14,7 +14,7 @@ vi.mock("./auth-profile-success.js", () => ({
 
 const text = '```json\n{"name":"write","arguments":{"path":"proof.txt","content":"OK"}}\n```';
 
-function makeTextCallInput() {
+function makeTextCallInput(overrides: Parameters<typeof makeEmbeddedRunnerAttempt>[0] = {}) {
   const assistant = buildEmbeddedRunnerAssistant({
     stopReason: "stop",
     content: [{ type: "text", text }],
@@ -25,6 +25,7 @@ function makeTextCallInput() {
       lastAssistant: assistant,
       currentAttemptAssistant: assistant,
       textToolCallAttempt: true,
+      ...overrides,
     }),
     payloadsWithToolMedia: [{ text }],
   });
@@ -32,6 +33,29 @@ function makeTextCallInput() {
 
 describe("terminal resolution for a tool call written as text", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    { toolName: "read", replaySafe: true, action: "retry" },
+    { toolName: "write", replaySafe: false, action: "complete" },
+  ])(
+    "preserves retry safety after an earlier $toolName",
+    async ({ toolName, replaySafe, action }) => {
+      const input = makeTextCallInput({
+        toolMetas: [{ toolName, replaySafe, isError: false }],
+        itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+        replayMetadata: { replaySafe, hadPotentialSideEffects: !replaySafe },
+      });
+      const result = await resolveEmbeddedRunTerminal(input);
+      expect(result.action).toBe(action);
+      expect(input.sessionPromptState.activateInternalPrompt).toHaveBeenCalledTimes(
+        replaySafe ? 1 : 0,
+      );
+      if (result.action === "complete") {
+        expect(result.result.meta.error).toMatchObject({ kind: "incomplete_turn" });
+        expect(result.result.payloads?.[0]?.text).toContain("No tool ran for that call");
+      }
+    },
+  );
 
   it("nudges once, then returns a visible failure instead of successful JSON text", async () => {
     const input = makeTextCallInput();

@@ -251,17 +251,20 @@ export function isPlainTextToolCallAttempt(text: string, names: ReadonlySet<stri
   const trailing = /^([^\n]+)\n\s*((?:<|\{|\[)[\s\S]*)$/i.exec(trimmed);
   const prefix = (fence?.[1] ?? trailing?.[1] ?? "").trim();
   const body = fence?.[3] ?? trailing?.[2];
-  // Only a short action announcement may precede the block. Explanations and
-  // examples remain literal, even when their sample names a registered tool.
+  const announcement = /^(?:I(?:'ll| will| am going to)|Let me) (.+?)(?: now)?[.!:]?$/i.exec(
+    prefix,
+  )?.[1];
+  const announcedTool =
+    /^(?:call|invoke|run|execute|use) (?:the )?([A-Za-z_][A-Za-z0-9_.:-]*)(?: tool)?$/i.exec(
+      announcement ?? "",
+    )?.[1];
+  const fileAnnouncement = /^(?:create|read|write|update|delete) the file$/i.test(
+    announcement ?? "",
+  );
+  // Accept only a tool label or complete action announcement, not explanatory prose.
   if (
     !body ||
-    (prefix &&
-      (prefix.length > 160 ||
-        /[\r\n]/.test(prefix) ||
-        /\b(example|sample|explain|describe|show|schema|syntax|documentation|illustrat\w*|demonstrat\w*)\b/i.test(
-          prefix,
-        ) ||
-        !/^(?:I(?:'ll| will| am going to)\b|Let me\b|\w+$)/i.test(prefix)))
+    (prefix && !names.has(prefix) && !names.has(announcedTool ?? "") && !fileAnnouncement)
   ) {
     return false;
   }

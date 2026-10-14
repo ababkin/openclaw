@@ -280,7 +280,6 @@ export function completeEmbeddedAttemptResult(
   const textToolCallAttempt =
     state.terminal.kind === "ok" &&
     assistant?.stopReason === "stop" &&
-    evidence.toolMetas.length === 0 &&
     !assistant.content.some(isRunnerToolCallBlock) &&
     isPlainTextToolCallAttempt(
       extractAssistantTranscriptSourceText(assistant) ?? "",
