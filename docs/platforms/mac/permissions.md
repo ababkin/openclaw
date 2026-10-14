@@ -44,8 +44,9 @@ permission grants and relaunches require their own card actions.
 
 Location uses the same capability for its OpenClaw mode and macOS grant. If
 Location is off and macOS has already denied or restricted access, the card offers
-**Open System Settings** for Location Services first. After access is granted,
-**Enable Location** turns on While Using access with the native confirmation.
+**Open System Settings** for Location Services first, without asking to enable
+Location. After access is granted, **Enable Location** turns on While Using access
+with the native confirmation.
 If macOS has not asked yet, enabling Location requests access once; the mode
 stays off if you deny it.
 

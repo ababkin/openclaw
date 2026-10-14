@@ -6,6 +6,36 @@ import Testing
 @MainActor
 struct PermissionManagerLocationTests {
     @Test(arguments: [CLAuthorizationStatus.denied, .restricted])
+    func `denied Location resolves Settings before enablement consent`(_ status: CLAuthorizationStatus) async {
+        let manager = FixtureLocationManager(status: status)
+        var openedSettings = 0
+        var enablementRequests = 0
+        let requester = LocationPermissionRequester(manager: manager, openSettings: { openedSettings += 1 })
+        await PermissionManager.resolve([.location], location: requester, isCurrent: { true }) { _ in
+            enablementRequests += 1
+            return false
+        }
+        #expect(openedSettings == 1)
+        #expect(enablementRequests == 0)
+        #expect(manager.authorizationRequests == 0)
+    }
+
+    @Test(arguments: [CLAuthorizationStatus.notDetermined, .authorizedAlways])
+    func `promptable and granted Location still require enablement consent`(_ status: CLAuthorizationStatus) async {
+        let manager = FixtureLocationManager(status: status)
+        var openedSettings = 0
+        var enablementRequests = 0
+        let requester = LocationPermissionRequester(manager: manager, openSettings: { openedSettings += 1 })
+        await PermissionManager.resolve([.location], location: requester, isCurrent: { true }) { _ in
+            enablementRequests += 1
+            return false
+        }
+        #expect(enablementRequests == 1)
+        #expect(openedSettings == 0)
+        #expect(manager.authorizationRequests == 0)
+    }
+
+    @Test(arguments: [CLAuthorizationStatus.denied, .restricted])
     func `enabling Location opens Settings when macOS cannot prompt again`(_ status: CLAuthorizationStatus) async {
         let manager = FixtureLocationManager(status: status)
         var openedSettings = 0
