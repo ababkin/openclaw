@@ -149,12 +149,14 @@ export async function captureMcpAuthProfileAuthorization(params: {
       const rows = await Promise.all(
         targets.map(async (target) => {
           if (target.agentId === undefined) {
-            return readSharedAuthProfileRows(context);
+            return readSharedAuthProfileRows(context, undefined, "canonical");
           }
           target.reader ??= prepareAgentAuthProfileRowsRead({
             databasePath: target.databasePath,
             agentId: target.agentId,
             env,
+            // Runtime credential projections omit private authorization incarnations.
+            source: "canonical",
           });
           return target.reader.read();
         }),

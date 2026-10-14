@@ -1,5 +1,5 @@
-import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
+import type { EngineConnection } from "../../infra/sql-connection.js";
 import { enrollAuthProfileAuthorization } from "./authorization-lifetime.js";
 import { AUTH_STORE_VERSION } from "./constants.js";
 import { writeAuthProfileJsonCell } from "./sqlite-json-write.js";
@@ -19,7 +19,7 @@ export type AuthProfileAuthorizationOperations = {
 
 /** The existing auth row is the only durable owner; enrollment is a credential-preserving CAS. */
 export function enrollAuthProfileAuthorizationInDatabase(
-  database: DatabaseSync,
+  database: EngineConnection,
   kind: "agent" | "shared-state",
   input: AuthProfileAuthorizationEnrollment,
 ): AuthProfileAuthorizationOperations["authProfiles.enrollAuthorization"]["output"] {

@@ -1,5 +1,5 @@
-import type { DatabaseSync } from "node:sqlite";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
+import type { EngineConnection } from "../infra/sql-connection.js";
 import { deferSqlitePostCommitPublication } from "../infra/sqlite-post-commit.js";
 import {
   deferSqliteWorkerCommitReceipt,
@@ -31,7 +31,7 @@ import type { McpOAuthMutation } from "./mcp-oauth-store.types.js";
 type McpOAuthOwnedStore = { storeKey: string; identity: OpenClawStateLeaseIdentity };
 
 function assertStoreLease(
-  database: DatabaseSync,
+  database: EngineConnection,
   input: McpOAuthOwnedStore,
   stage: "transaction" | "commit" = "transaction",
 ): void {
@@ -41,9 +41,9 @@ function assertStoreLease(
   assertOpenClawStateLeaseWorkerOwnedInTransaction(database, input.identity, "write", stage);
 }
 
-const pendingSchemaDatabases = new WeakSet<DatabaseSync>();
+const pendingSchemaDatabases = new WeakSet<EngineConnection>();
 
-function ensurePendingSchema(database: DatabaseSync): void {
+function ensurePendingSchema(database: EngineConnection): void {
   if (pendingSchemaDatabases.has(database)) {
     return;
   }
@@ -53,7 +53,7 @@ function ensurePendingSchema(database: DatabaseSync): void {
 }
 
 function ownedWrite<Input extends McpOAuthOwnedStore, Result>(
-  operation: (database: DatabaseSync, input: Input, assertOwned: () => void) => Result,
+  operation: (database: EngineConnection, input: Input, assertOwned: () => void) => Result,
   pending = false,
 ) {
   return (input: Input, { open }: WorkerOperationContext): Result => {
@@ -75,7 +75,11 @@ function ownedWrite<Input extends McpOAuthOwnedStore, Result>(
   };
 }
 
-function deletePending(database: DatabaseSync, storeKey: string, assertOwned: () => void): void {
+function deletePending(
+  database: EngineConnection,
+  storeKey: string,
+  assertOwned: () => void,
+): void {
   assertOwned();
   executeSqliteQuerySync(
     database,

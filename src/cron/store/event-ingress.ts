@@ -1,9 +1,9 @@
-import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import {
   completeChannelIngressInDatabase,
   readChannelIngressClaimSnapshotInDatabase,
 } from "../../channels/message/ingress-queue.kernel.js";
+import type { EngineConnection } from "../../infra/sql-connection.js";
 import type { CronEventAdmission } from "../event-source.js";
 import { cronSourceIdentity } from "../source-schedule.js";
 import type { CronJob } from "../types.js";
@@ -11,7 +11,7 @@ import type { CronRunReceiptHandle } from "./run-receipt.types.js";
 
 /** The existing ingress owner reads the exact row inside cron's admitted worker transaction. */
 export function readCronEventClaimInDatabase(
-  db: DatabaseSync,
+  db: EngineConnection,
   job: CronJob,
   event: CronEventAdmission,
 ) {
@@ -49,7 +49,7 @@ export function readCronEventClaimInDatabase(
  * ordinary interrupted-run recovery and must never replay external side effects.
  */
 export function transferCronEventInDatabase(
-  db: DatabaseSync,
+  db: EngineConnection,
   job: CronJob,
   event: CronEventAdmission,
   receipt: CronRunReceiptHandle,

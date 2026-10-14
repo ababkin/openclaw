@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { acquireGatewayStateOwner } from "../../infra/gateway-state-owner.js";
 import { runSqliteImmediateTransactionSync } from "../../infra/sqlite-transaction.js";
+import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
+import { closeStateDatabaseForTest } from "../../test-utils/database-cleanup.js";
 import { withEnvAsync } from "../../test-utils/env.js";
 import { captureMcpAuthProfileAuthorization } from "../mcp-auth-profile-authorization.js";
 import { enrollAuthProfileAuthorizationInDatabase } from "./authorization-enrollment.js";
@@ -46,12 +49,25 @@ describe("auth-profile writer publication", () => {
     async (outcome) => {
       const root = await seedRoot("before");
       await withEnvAsync(root.env, async () => {
-        const authority = await captureMcpAuthProfileAuthorization({
-          profileId: "local",
-          agentDir: root.agentDir,
-          assertCurrent() {},
+        // Unknown settlement retains offline custody until restart; this matrix exercises
+        // the Gateway-owned writer, with its owner retained through database cleanup.
+        const ownerLease = acquireGatewayStateOwner({
+          databasePath: root.sharedPath,
+          payload: {
+            pid: process.pid,
+            createdAt: new Date().toISOString(),
+            configPath: `${root.stateDir}/openclaw.json`,
+            role: "gateway",
+          },
         });
+        let disposeAuthority: (() => void) | undefined;
         try {
+          const authority = await captureMcpAuthProfileAuthorization({
+            profileId: "local",
+            agentDir: root.agentDir,
+            assertCurrent() {},
+          });
+          disposeAuthority = authority.dispose;
           const before = readPersistedAuthProfileStoreRaw(root.agentDir);
           const database = runAuthProfileWriteTransaction(root.agentDir, (owner) => owner);
           const payload = { version: 1, profiles: { local: apiKey("replacement") } };
@@ -105,7 +121,10 @@ describe("auth-profile writer publication", () => {
             );
           }
         } finally {
-          authority.dispose();
+          disposeAuthority?.();
+          closeOpenClawAgentDatabasesForTest();
+          await closeStateDatabaseForTest();
+          ownerLease.release();
         }
       });
     },

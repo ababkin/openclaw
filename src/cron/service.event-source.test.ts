@@ -7,10 +7,21 @@ import { createChannelIngressQueue } from "../channels/message/ingress-queue.js"
 import * as workerAdmission from "../infra/sqlite-worker-store.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
+import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
+import { executeOpenClawStateWorker } from "../state/openclaw-state-worker-store.js";
 import { createTestGatewayScheduler } from "../test-utils/gateway-scheduler-clock.js";
 import type { CronEventInput } from "./event-source.js";
 import { CronService } from "./service.js";
-import { setupCronServiceSuite } from "./service.test-harness.js";
+import {
+  createCronServiceWithStateForTest,
+  setupCronServiceSuite,
+} from "./service.test-harness.js";
+import { locked } from "./service/locked.js";
+import {
+  commitCronRunRequests,
+  drainCronRunQueue,
+  getCronRunQueueRequests,
+} from "./service/run-queue.js";
 import type { CronServiceDeps } from "./service/state.js";
 import * as cronStore from "./store.js";
 import { loadCronStore } from "./store.js";
@@ -24,7 +35,7 @@ async function fixture(overrides: Partial<CronServiceDeps> = {}) {
   const runIsolatedAgentJob = vi.fn<CronServiceDeps["runIsolatedAgentJob"]>(async () => ({
     status: "ok",
   }));
-  const cron = new CronService({
+  const { cron, state } = createCronServiceWithStateForTest({
     scheduler: createTestGatewayScheduler(),
     storePath,
     cronEnabled: true,
@@ -88,7 +99,7 @@ async function fixture(overrides: Partial<CronServiceDeps> = {}) {
       },
     };
   }
-  return { cron, job, input, queue, claim, storePath, runIsolatedAgentJob };
+  return { cron, state, job, input, queue, claim, storePath, runIsolatedAgentJob };
 }
 
 async function waitForEventRun(
@@ -166,6 +177,51 @@ describe("event automation durable admission", () => {
       finish.resolve();
       await f.cron.waitForIdle();
       f.cron.stop();
+    }
+  });
+
+  it("keeps untransferred event claims out of the scheduler's unguarded drain", async () => {
+    const f = await fixture();
+    try {
+      const { event, options } = await f.claim("scheduler-event");
+      const transferred = vi.fn();
+      const requested = await locked(f.state, () =>
+        commitCronRunRequests(f.state, [f.job], {
+          source: "manual",
+          mode: "if-enabled",
+          event: { input: event, claim: options.claim },
+          commitGuard: options.commitGuard,
+          onEventTransferred: transferred,
+        }),
+      );
+      expect(requested).toHaveLength(1);
+      expect(getCronRunQueueRequests(f.state)).toEqual([]);
+      expect(getCronRunQueueRequests(f.state, { includePendingEvents: true })).toMatchObject([
+        { receiptId: requested[0]!.runReceipt.receiptId, event: { input: event } },
+      ]);
+      // Exercise the native scheduler composition, not just its host projection.
+      const scheduled = await executeOpenClawStateWorker(captureOpenClawStateWorkerContext(), {
+        type: "cron.schedulerTick",
+        input: {
+          storeKey: cronStoreKey(f.storePath),
+          nowMs: Date.now(),
+          requests: getCronRunQueueRequests(f.state),
+        },
+      });
+      expect(scheduled.launches).toEqual([]);
+      expect(transferred).not.toHaveBeenCalled();
+      expect(f.runIsolatedAgentJob).not.toHaveBeenCalled();
+      expect(await f.queue.listClaims()).toMatchObject([
+        { id: event.eventId, claim: { token: options.claim.token } },
+      ]);
+      await drainCronRunQueue(f.state);
+      await requested[0]!.completion;
+      expect(transferred).toHaveBeenCalledOnce();
+      expect(f.runIsolatedAgentJob).toHaveBeenCalledOnce();
+      expect(await f.queue.enqueue(event.eventId, event)).toMatchObject({ kind: "completed" });
+    } finally {
+      f.cron.stop();
+      await f.cron.waitForIdle();
     }
   });
 

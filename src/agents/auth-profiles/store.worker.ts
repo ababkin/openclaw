@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { MessageChannel } from "node:worker_threads";
+import { stableStringify } from "@openclaw/normalization-core/stable-stringify";
 import {
   deferSqliteWorkerCommitReceipt,
   requestSqliteWorkerOperationAdmission,
 } from "../../infra/sqlite-worker-operation-admission.js";
-import { readConfigMachineState } from "../../state/config-machine-state.js";
 import {
   withArtifactPreservingStateReads,
   withExistingOpenClawStateDatabaseReadOnly,
@@ -13,6 +13,7 @@ import {
 import { runOpenClawStateWriteTransaction } from "../../state/openclaw-state-db.js";
 import { personalCredentialPublication } from "../../state/user-model-account-authority.js";
 import {
+  encodeUserModelAuthProfile,
   readUserModelAuthProfile,
   readUserModelAuthProfileInDatabase,
   updateUserModelAuthProfile,
@@ -23,10 +24,10 @@ import {
   type AuthProfileAuthorizationEnrollment,
 } from "./authorization-enrollment.js";
 import { bootstrapSharedAuthStoreInWorker } from "./shared-store-bootstrap.worker.js";
-import { readAuthProfileRows, SHARED_AUTH_STORE_STATE_KEY } from "./sqlite-json.js";
+import { readAuthProfileRows } from "./sqlite-json.js";
 import { isMissingDatabasePath } from "./sqlite-read-pool.js";
-import { updateAuthProfileStoreInDatabase } from "./store-update-kernel.js";
 import { sendAuthProfileUpdateValue } from "./store-update-transfer.js";
+import { updateAuthProfileStoreInDatabase } from "./store-update.worker.js";
 import type {
   AuthProfileUsageInput,
   AuthProfileUsageResult,
@@ -85,8 +86,8 @@ export const authProfileOperations = {
     { open, stateOptions },
   ): UserModelAuthProfile | undefined => {
     const database = open();
-    let committed: UserModelAuthProfile | undefined;
     const options = { ...stateOptions(), database };
+    let committed: UserModelAuthProfile | undefined;
     personalCredentialPublication.capture(database.db, () =>
       updateUserModelAuthProfile(
         input.profileId,
@@ -99,13 +100,16 @@ export const authProfileOperations = {
           return true;
         },
         options,
-        (stage) => {
-          if (stage === "transaction") {
-            requestSqliteWorkerOperationAdmission({ stage, facts: undefined });
+        (operation) => {
+          if (operation.stage === "transaction") {
+            requestSqliteWorkerOperationAdmission({ stage: operation.stage, facts: undefined });
           } else {
-            committed = input.next;
-            const digest = createHash("sha256").update(JSON.stringify(input.next)).digest("hex");
-            requestSqliteWorkerOperationAdmission({ stage, facts: digest });
+            committed = operation.profile;
+            if (encodeUserModelAuthProfile(committed) !== encodeUserModelAuthProfile(input.next)) {
+              throw new Error("Personal credential codec changed the prepared update");
+            }
+            const digest = createHash("sha256").update(stableStringify(committed)).digest("hex");
+            requestSqliteWorkerOperationAdmission({ stage: operation.stage, facts: digest });
             deferSqliteWorkerCommitReceipt(database.db, {
               digest,
               personalCredentials: personalCredentialPublication.capture(database.db, () => {})
@@ -166,7 +170,7 @@ export const authProfileOperations = {
         return true;
       },
       stateOptions(),
-      (stage) => requestSqliteWorkerOperationAdmission({ stage, facts: undefined }),
+      ({ stage }) => requestSqliteWorkerOperationAdmission({ stage, facts: undefined }),
     );
     return result;
   },
@@ -207,10 +211,6 @@ export const authProfileOperations = {
       port1.close();
       port2.close();
     }
-  },
-  "authProfiles.sharedOwnership": (input: { artifactPreserving: boolean }, { stateOptions }) => {
-    const read = () => readConfigMachineState(SHARED_AUTH_STORE_STATE_KEY, stateOptions());
-    return input.artifactPreserving ? withArtifactPreservingStateReads(read) : read();
   },
   "authProfiles.personal": (
     input: { profileId: string; artifactPreserving: boolean },
