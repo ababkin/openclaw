@@ -257,7 +257,10 @@ export function isPlainTextToolCallAttempt(text: string, names: ReadonlySet<stri
     !body ||
     (prefix &&
       (prefix.length > 160 ||
-        /\b(example|sample|illustrat\w*|demonstrat\w*)\b/i.test(prefix) ||
+        /[\r\n]/.test(prefix) ||
+        /\b(example|sample|explain|describe|show|schema|syntax|documentation|illustrat\w*|demonstrat\w*)\b/i.test(
+          prefix,
+        ) ||
         !/^(?:I(?:'ll| will| am going to)\b|Let me\b|\w+$)/i.test(prefix)))
   ) {
     return false;

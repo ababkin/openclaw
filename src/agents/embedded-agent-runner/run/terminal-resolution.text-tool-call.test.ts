@@ -6,6 +6,7 @@ import {
 import { resolveEmbeddedRunTerminal } from "./terminal-resolution.js";
 import { makeTerminalInput } from "./terminal-resolution.test-support.js";
 
+// mock-isolation: Terminal recovery must not publish auth success to persistent stores.
 vi.mock("./auth-profile-success.js", () => ({
   markEmbeddedRunAuthProfileSuccess: vi.fn(),
   reportEmbeddedRunSuccessfulAuthBinding: vi.fn(),
