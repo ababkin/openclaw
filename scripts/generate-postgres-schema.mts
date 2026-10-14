@@ -17,6 +17,10 @@ import {
   postgresCatalogQuery,
   readPostgresCatalog,
 } from "../src/infra/database-engine/postgres-catalog.ts";
+import {
+  TASK_RUN_INDEX_RETIREMENT_V23_SQL,
+  TASK_RUN_INDEX_REPLACEMENTS_V23,
+} from "../src/state/openclaw-state-db-schema-v23-indexes.ts";
 import { listOpenClawStateFeatureSchemas } from "../src/state/openclaw-state-feature-schema.ts";
 import { isDirectRunUrl } from "./lib/direct-run.mjs";
 import { formatGeneratedModule } from "./lib/format-generated-module.mts";
@@ -32,6 +36,7 @@ import {
   assertPostgresTriggers,
   translatePostgresTriggers,
 } from "./lib/postgres-schema-triggers.mts";
+import { checkStateTaskIndexMigration } from "./lib/postgres-state-index-conformance.mts";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const MINIMUM_POSTGRES_VERSION = 16;
@@ -199,6 +204,24 @@ export async function generatePostgresSchemas(
           data.objects.filter((item) => ownership.get(item.table) === fragment.id),
         );
       }
+      if (root === ROOT) {
+        const replacements = TASK_RUN_INDEX_REPLACEMENTS_V23.map((indexName) => {
+          const index = data.objects.find(
+            (item) =>
+              item.kind === "index" && item.table === "task_runs" && item.name === indexName,
+          );
+          assert.ok(
+            index && index.sql?.startsWith("CREATE INDEX "),
+            `Missing translated shared-state v23 index: ${indexName}`,
+          );
+          return index.sql;
+        });
+        files["state-v22-v23.postgres.sql"] = `${[
+          "-- Generated v22-to-v23 forward DDL; the owner supplies search_path, transaction, and version publication.",
+          TASK_RUN_INDEX_RETIREMENT_V23_SQL.trim(),
+          ...replacements,
+        ].join("\n\n")}\n`;
+      }
       continue;
     }
     files[`${name}.postgres.sql`] =
@@ -352,6 +375,14 @@ export async function checkPostgresCatalog(connection: string): Promise<void> {
       const row = (await client.query(sql)).rows[0];
       return row.catalog ?? row.triggers;
     });
+    await checkStateTaskIndexMigration(
+      client,
+      `${prefix}_state`,
+      generated.files["state-v22-v23.postgres.sql"]!,
+    );
+    console.log(
+      `${prefix}_state: verified v22-to-v23 task index migration, retained payload, and complete index definitions`,
+    );
     await client.query(`SET search_path = ${quote(`${prefix}_agent`)}`);
     await client.query("BEGIN");
     await client.query(`CREATE OR REPLACE FUNCTION openclaw_memory_index_sources_trigger()

@@ -41,6 +41,7 @@ import {
 } from "./openclaw-state-db-schema-helpers.js";
 import { migrateJsonCanonicalWideRowsV13 } from "./openclaw-state-db-schema-v13-widerow.js";
 import { migratePortableIdentityColumnsV22 } from "./openclaw-state-db-schema-v22-columns.js";
+import { migrateTaskRunIndexesV23 } from "./openclaw-state-db-schema-v23-indexes.js";
 import {
   assertSupportedStateSchemaVersion,
   readStateSchemaContentVersion,
@@ -425,6 +426,10 @@ export const versionedStateMigrations: ReadonlyArray<{
   {
     migrate: migrateCronDeliveryAttemptState,
     applied: "Recorded cron completion delivery attempt uncertainty (v20)",
+  },
+  {
+    migrate: migrateTaskRunIndexesV23,
+    applied: "Replaced retained task indexes with ordered cron history indexes (v23)",
   },
 ];
 

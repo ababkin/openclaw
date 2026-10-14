@@ -2227,7 +2227,7 @@ describe("openclaw state database", () => {
         ALTER TABLE claw_installs DROP COLUMN bootstrap_content_digest;
       `);
 
-      shippedSchema.exec("DROP INDEX idx_task_runs_status;");
+      shippedSchema.exec("DROP INDEX idx_task_runs_runtime_run;");
 
       expect(readSqliteNumberPragma(shippedSchema, "user_version")).toBe(
         OPENCLAW_STATE_SCHEMA_VERSION,
