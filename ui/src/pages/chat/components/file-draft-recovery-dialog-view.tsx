@@ -25,11 +25,6 @@ export function FileDraftRecoveryDialog(props: {
     }
     return true;
   };
-  const action = (label: string, run: () => void | Promise<void>, danger = false) => (
-    <button type="button" class={danger ? "btn danger" : "btn"} onClick={run}>
-      {label}
-    </button>
-  );
   return (
     <openclaw-modal-dialog
       label={t("chat.detailPanel.draftRecovery.review")}
@@ -72,11 +67,10 @@ export function FileDraftRecoveryDialog(props: {
                   <textarea readonly rows="6" value={entry.content} />
                 </label>
                 <div class="exec-approval-actions">
-                  {action(
-                    copied() === entry
-                      ? t("common.copied")
-                      : t("chat.detailPanel.draftRecovery.copy", { name: entry.name }),
-                    async () => {
+                  <button
+                    type="button"
+                    class="btn"
+                    onClick={async () => {
                       if (!current(entry)) {
                         return;
                       }
@@ -85,19 +79,27 @@ export function FileDraftRecoveryDialog(props: {
                         setCopied(ok ? entry : undefined);
                         setError(ok ? "" : t("chat.detailPanel.draftRecovery.copyFailed"));
                       }
-                    },
-                  )}
-                  {action(
-                    t("chat.detailPanel.draftRecovery.download", { name: entry.name }),
-                    () => {
+                    }}
+                  >
+                    {copied() === entry
+                      ? t("common.copied")
+                      : t("chat.detailPanel.draftRecovery.copy", { name: entry.name })}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn"
+                    onClick={() => {
                       if (current(entry)) {
                         downloadTextFile(entry.name, entry.content);
                       }
-                    },
-                  )}
-                  {action(
-                    t("chat.detailPanel.draftRecovery.discard", { name: entry.name }),
-                    () => {
+                    }}
+                  >
+                    {t("chat.detailPanel.draftRecovery.download", { name: entry.name })}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn danger"
+                    onClick={() => {
                       if (!current(entry) || !entry.discard()) {
                         return;
                       }
@@ -107,9 +109,10 @@ export function FileDraftRecoveryDialog(props: {
                       if (!next.length) {
                         props.finish();
                       }
-                    },
-                    true,
-                  )}
+                    }}
+                  >
+                    {t("chat.detailPanel.draftRecovery.discard", { name: entry.name })}
+                  </button>
                 </div>
               </section>
             );

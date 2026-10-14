@@ -51,6 +51,19 @@ function button(modal: HTMLElement, text: string): HTMLButtonElement {
   return found;
 }
 
+it("keeps focus on the copy action when its feedback changes", async () => {
+  clipboard.copy.mockResolvedValue(true);
+  const result = reviewFileDrafts([draft("notes.md")]);
+  const { modal } = await waitForRenderedModalDialog(document.body);
+  const copy = button(modal, "Copy notes.md");
+  copy.focus();
+  copy.click();
+  await waitForSolid(() => expect(copy.textContent).toContain("Copied"));
+  expect(document.activeElement).toBe(copy);
+  button(modal, "Keep").click();
+  await result;
+});
+
 it("ignores a copy completion after the review is dismissed", async () => {
   let finishCopy!: (copied: boolean) => void;
   clipboard.copy.mockImplementation(
