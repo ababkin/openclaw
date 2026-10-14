@@ -43,130 +43,162 @@ struct BundledRecoveryCompositionTests {
         AppStateStore.shared.onboardingSeen = true
         AppStateStore.shared.isPaused = false
         let manager = GatewayProcessManager.shared
-        manager.setActive(true, source: .request)
-        await manager.waitForStartupAttempt()
-        let serviceReady = switch manager.status {
-        case .running, .attachedExisting: true
-        default: false
+        do {
+            manager.setActive(true, source: .request)
+            await manager.waitForStartupAttempt()
+            let serviceReady = switch manager.status {
+            case .running, .attachedExisting: true
+            default: false
+            }
+            try #require(
+                serviceReady && manager.lastFailureReason == nil,
+                Comment(rawValue: "Initial service startup: tests=\(ProcessInfo.processInfo.isRunningTests) " +
+                    "activation=\(NSApp.activationPolicy()) status=\(manager.status) " +
+                    "failure=\(manager.lastFailureReason ?? "none") log=\(manager.log.suffix(2048))"))
+            #expect(try await GatewayConnection.shared.healthOK())
+            let command = try #require(GatewayLaunchAgentManager.launchdProgramArguments())
+            #expect(command.contains("--no-install"))
+            let inspected = try #require(GatewayLaunchAgentManager.installedServiceCLI())
+            #expect(inspected.prefix.first == runtime.bun.path)
+
+            // Same-version shell and app packages must not be interchangeable host-link owners.
+            let wrongRoot = state.appendingPathComponent("other-install")
+            try FileManager.default.createDirectory(at: wrongRoot, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: [
+                "name": "openclaw", "version": version, "type": "module",
+                "exports": ["./plugin-sdk/plugin-entry": "./missing-sdk.js"],
+            ]).write(to: wrongRoot.appendingPathComponent("package.json"))
+            let peer = state.appendingPathComponent("extensions/\(self.pluginID)/node_modules/openclaw")
+            try FileManager.default.createDirectory(
+                at: peer.deletingLastPathComponent(), withIntermediateDirectories: true)
+            do {
+                try FileManager.default.removeItem(at: peer)
+            } catch let error as CocoaError where error.code == .fileNoSuchFile {
+                // The Gateway can resolve SDK aliases even when this physical peer link is absent.
+            }
+            try FileManager.default.createSymbolicLink(at: peer, withDestinationURL: wrongRoot)
+            try #require(try FileManager.default.destinationOfSymbolicLink(atPath: peer.path) == wrongRoot.path)
+            let probe = state.appendingPathComponent("extensions/\(self.pluginID)/peer-health.mjs")
+            let before = await ShellExecutor.runDetailed(
+                command: [runtime.bun.path, probe.path], cwd: nil, env: runtime.environment, timeout: 30)
+            try #require(!before.success)
+
+            AppStateStore.shared.isPaused = true
+            manager.stop()
+            await manager.waitForStartupAttempt()
+            try #require(manager.status == .stopped && manager.lastFailureReason == nil)
+            try #require(GatewayLaunchAgentManager.launchdProgramArguments() == [])
+            let stoppedService = try #require(
+                try await GatewayLaunchAgentManager.loadedGatewayState(port: GatewayEnvironment.gatewayPort()))
+            try #require(stoppedService.runningPID == nil)
+            let agent = state.appendingPathComponent("agents/main/agent/openclaw-agent.sqlite")
+            let artifacts = [
+                agent,
+                URL(fileURLWithPath: agent.path + "-wal"),
+                URL(fileURLWithPath: agent.path + "-shm"),
+            ]
+            let retained = artifacts.filter { FileManager.default.fileExists(atPath: $0.path) }
+            for artifact in retained {
+                try FileManager.default.moveItem(
+                    at: artifact,
+                    to: artifact.appendingPathExtension("composition-original"))
+            }
+            try FileManager.default.createDirectory(
+                at: agent.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // Newer schemas are a required refusal, unlike isolatable secondary-agent diagnostics.
+            let future = await ShellExecutor.runDetailed(
+                command: ["/usr/bin/sqlite3", agent.path, "PRAGMA user_version=2147483646;"],
+                cwd: nil,
+                env: [:],
+                timeout: 30)
+            #expect(future.success)
+            let futureBytes = try Data(contentsOf: agent)
+
+            let receipt = PostAppUpdateReceipt(
+                fromVersion: "2026.10.1",
+                toVersion: version,
+                recordedAt: Date(),
+                notificationInFlight: true,
+                runtimeBuildID: Bundle.main.infoDictionary?["OpenClawRuntimeBuildID"] as? String)
+            let checkpoint = PostAppUpdateReceiptStore.recordCoreUpdateDispatch(receipt: receipt, owner: .gateway)
+            #expect(!checkpoint.setupRecovery && checkpoint.coreUpdatePending)
+            #expect(PostUpdateController.shared.startIfNeeded())
+            let window = try await self.updateWindow()
+            _ = try await AppKitTestSupport.waitForAccessibilityElement(
+                in: window, description: "paused recovery", matching: { elements in
+                    elements.first { AppKitTestSupport.accessibilityName(of: $0)?.contains("Resume OpenClaw") == true }
+                })
+            #expect(PostAppUpdateReceiptStore.pending(currentVersion: version)?.coreUpdatePending == true)
+
+            AppStateStore.shared.isPaused = false
+            PostUpdateController.shared.retry()
+            _ = try await AppKitTestSupport.waitForAccessibilityElement(
+                in: window, description: "newer-schema Doctor diagnostic", matching: { elements in
+                    elements.first { AppKitTestSupport.accessibilityName(of: $0)?.contains("2147483646") == true }
+                })
+            _ = try await AppKitTestSupport.waitForAccessibilityElement(
+                in: window, description: "required newer-schema refusal", matching: { elements in
+                    elements.first { $0.accessibilityRole?() == .button && $0.accessibilityLabel?() == "Retry" }
+                })
+            #expect(PostAppUpdateReceiptStore.pending(currentVersion: version)?.coreUpdatePending == true)
+            #expect(try Data(contentsOf: agent) == futureBytes)
+            manager.stop()
+            await manager.waitForStartupAttempt()
+            try #require(manager.status == .stopped && manager.lastFailureReason == nil)
+            try #require(GatewayLaunchAgentManager.launchdProgramArguments() == [])
+            let stoppedAfterRefusal = try #require(
+                try await GatewayLaunchAgentManager.loadedGatewayState(port: GatewayEnvironment.gatewayPort()))
+            try #require(stoppedAfterRefusal.runningPID == nil)
+            try FileManager.default.removeItem(at: agent)
+            for artifact in retained {
+                try FileManager.default.moveItem(
+                    at: artifact.appendingPathExtension("composition-original"),
+                    to: artifact)
+            }
+
+            PostUpdateController.shared.retry()
+            let receiptChanged = AsyncTestSignal()
+            let observation = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: nil,
+                queue: .main,
+                using: { _ in receiptChanged.notify() })
+            defer { NotificationCenter.default.removeObserver(observation) }
+            try await receiptChanged.wait("ordinary recovery receipt completion") {
+                AppDefaults.standard.data(forKey: postAppUpdateReceiptKey) == nil
+            }
+            #expect(try await GatewayConnection.shared.healthOK())
+            let after = await ShellExecutor.runDetailed(
+                command: [runtime.bun.path, probe.path], cwd: nil, env: runtime.environment, timeout: 30)
+            #expect(after.success)
+            #expect(after.stdout.contains(runtime.packageRoot.path))
+            let health = try await GatewayConnection.shared.request(method: "health", params: nil)
+            let healthObject = try #require(try JSONSerialization.jsonObject(with: health) as? [String: Any])
+            #expect(healthObject["ok"] as? Bool == true)
+            let plugins = try #require(healthObject["plugins"] as? [String: Any])
+            #expect((plugins["errors"] as? [Any])?.isEmpty == true)
+            #expect((plugins["loaded"] as? [String])?.contains(self.pluginID) == true)
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: peer.path) == runtime.packageRoot.path)
+            #expect(AppDefaults.standard.synchronize())
+            PostUpdateController.shared.close()
+            await GatewayConnection.shared.shutdown()
+            // The launcher retains this exact named service until the fresh relaunch host joins it.
+        } catch {
+            // The still-live app owner joins its service stop before a failed fixture host exits.
+            manager.stop()
+            await manager.waitForStartupAttempt()
+            #expect(manager.status == .stopped && manager.lastFailureReason == nil)
+            #expect(GatewayLaunchAgentManager.launchdProgramArguments() == [])
+            do {
+                let stopped = try await GatewayLaunchAgentManager.loadedGatewayState(
+                    port: GatewayEnvironment.gatewayPort())
+                #expect(stopped != nil)
+                #expect(stopped?.runningPID == nil)
+            } catch {
+                Issue.record("The fixture's Gateway stop could not be inspected.")
+            }
+            throw error
         }
-        try #require(
-            serviceReady && manager.lastFailureReason == nil,
-            Comment(rawValue: "Initial service startup: tests=\(ProcessInfo.processInfo.isRunningTests) " +
-                "activation=\(NSApp.activationPolicy()) status=\(manager.status) " +
-                "failure=\(manager.lastFailureReason ?? "none") log=\(manager.log.suffix(2048))"))
-        #expect(try await GatewayConnection.shared.healthOK())
-        let command = try #require(GatewayLaunchAgentManager.launchdProgramArguments())
-        #expect(command.contains("--no-install"))
-        let inspected = try #require(GatewayLaunchAgentManager.installedServiceCLI())
-        #expect(inspected.prefix.first == runtime.bun.path)
-
-        // Same-version shell and app packages must not be interchangeable host-link owners.
-        let wrongRoot = state.appendingPathComponent("other-install")
-        try FileManager.default.createDirectory(at: wrongRoot, withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: [
-            "name": "openclaw", "version": version, "type": "module",
-            "exports": ["./plugin-sdk/plugin-entry": "./missing-sdk.js"],
-        ]).write(to: wrongRoot.appendingPathComponent("package.json"))
-        let peer = state.appendingPathComponent("extensions/\(self.pluginID)/node_modules/openclaw")
-        try FileManager.default.removeItem(at: peer)
-        try FileManager.default.createSymbolicLink(at: peer, withDestinationURL: wrongRoot)
-        let probe = state.appendingPathComponent("extensions/\(self.pluginID)/peer-health.mjs")
-        let before = await ShellExecutor.runDetailed(
-            command: [runtime.bun.path, probe.path], cwd: nil, env: runtime.environment, timeout: 30)
-        #expect(!before.success)
-
-        AppStateStore.shared.isPaused = true
-        manager.stop()
-        await manager.waitForStartupAttempt()
-        try #require(manager.status == .stopped && manager.lastFailureReason == nil)
-        try #require(GatewayLaunchAgentManager.launchdProgramArguments() == [])
-        let stoppedService = try #require(
-            try await GatewayLaunchAgentManager.loadedGatewayState(port: GatewayEnvironment.gatewayPort()))
-        try #require(stoppedService.runningPID == nil)
-        let agent = state.appendingPathComponent("agents/main/agent/openclaw-agent.sqlite")
-        let artifacts = [agent, URL(fileURLWithPath: agent.path + "-wal"), URL(fileURLWithPath: agent.path + "-shm")]
-        let retained = artifacts.filter { FileManager.default.fileExists(atPath: $0.path) }
-        for artifact in retained {
-            try FileManager.default.moveItem(at: artifact, to: artifact.appendingPathExtension("composition-original"))
-        }
-        try FileManager.default.createDirectory(
-            at: agent.deletingLastPathComponent(), withIntermediateDirectories: true)
-        // Newer schemas are a required refusal, unlike isolatable secondary-agent diagnostics.
-        let future = await ShellExecutor.runDetailed(
-            command: ["/usr/bin/sqlite3", agent.path, "PRAGMA user_version=2147483646;"],
-            cwd: nil,
-            env: [:],
-            timeout: 30)
-        #expect(future.success)
-        let futureBytes = try Data(contentsOf: agent)
-
-        let receipt = PostAppUpdateReceipt(
-            fromVersion: "2026.10.1",
-            toVersion: version,
-            recordedAt: Date(),
-            notificationInFlight: true,
-            runtimeBuildID: Bundle.main.infoDictionary?["OpenClawRuntimeBuildID"] as? String)
-        let checkpoint = PostAppUpdateReceiptStore.recordCoreUpdateDispatch(receipt: receipt, owner: .gateway)
-        #expect(!checkpoint.setupRecovery && checkpoint.coreUpdatePending)
-        #expect(PostUpdateController.shared.startIfNeeded())
-        let window = try await self.updateWindow()
-        _ = try await AppKitTestSupport.waitForAccessibilityElement(
-            in: window, description: "paused recovery", matching: { elements in
-                elements.first { AppKitTestSupport.accessibilityName(of: $0)?.contains("Resume OpenClaw") == true }
-            })
-        #expect(PostAppUpdateReceiptStore.pending(currentVersion: version)?.coreUpdatePending == true)
-
-        AppStateStore.shared.isPaused = false
-        PostUpdateController.shared.retry()
-        _ = try await AppKitTestSupport.waitForAccessibilityElement(
-            in: window, description: "newer-schema Doctor diagnostic", matching: { elements in
-                elements.first { AppKitTestSupport.accessibilityName(of: $0)?.contains("2147483646") == true }
-            })
-        _ = try await AppKitTestSupport.waitForAccessibilityElement(
-            in: window, description: "required newer-schema refusal", matching: { elements in
-                elements.first { $0.accessibilityRole?() == .button && $0.accessibilityLabel?() == "Retry" }
-            })
-        #expect(PostAppUpdateReceiptStore.pending(currentVersion: version)?.coreUpdatePending == true)
-        #expect(try Data(contentsOf: agent) == futureBytes)
-        manager.stop()
-        await manager.waitForStartupAttempt()
-        try #require(manager.status == .stopped && manager.lastFailureReason == nil)
-        try #require(GatewayLaunchAgentManager.launchdProgramArguments() == [])
-        let stoppedAfterRefusal = try #require(
-            try await GatewayLaunchAgentManager.loadedGatewayState(port: GatewayEnvironment.gatewayPort()))
-        try #require(stoppedAfterRefusal.runningPID == nil)
-        try FileManager.default.removeItem(at: agent)
-        for artifact in retained {
-            try FileManager.default.moveItem(at: artifact.appendingPathExtension("composition-original"), to: artifact)
-        }
-
-        PostUpdateController.shared.retry()
-        let receiptChanged = AsyncTestSignal()
-        let observation = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main,
-            using: { _ in receiptChanged.notify() })
-        defer { NotificationCenter.default.removeObserver(observation) }
-        try await receiptChanged.wait("ordinary recovery receipt completion") {
-            AppDefaults.standard.data(forKey: postAppUpdateReceiptKey) == nil
-        }
-        #expect(try await GatewayConnection.shared.healthOK())
-        let after = await ShellExecutor.runDetailed(
-            command: [runtime.bun.path, probe.path], cwd: nil, env: runtime.environment, timeout: 30)
-        #expect(after.success)
-        #expect(after.stdout.contains(runtime.packageRoot.path))
-        let health = try await GatewayConnection.shared.request(method: "health", params: nil)
-        let healthObject = try #require(try JSONSerialization.jsonObject(with: health) as? [String: Any])
-        #expect(healthObject["ok"] as? Bool == true)
-        let plugins = try #require(healthObject["plugins"] as? [String: Any])
-        #expect((plugins["errors"] as? [Any])?.isEmpty == true)
-        #expect((plugins["loaded"] as? [String])?.contains(self.pluginID) == true)
-        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: peer.path) == runtime.packageRoot.path)
-        #expect(AppDefaults.standard.synchronize())
-        PostUpdateController.shared.close()
-        await GatewayConnection.shared.shutdown()
-        // The launcher retains this exact named service until the fresh relaunch host joins it.
     }
 
     @Test(.enabled(if: Self.isAppHost))
