@@ -152,7 +152,7 @@ A refused request costs nothing. OpenClaw handles the exchange's refusals like a
 
 | Response | What OpenClaw does                                                                               |
 | -------- | ------------------------------------------------------------------------------------------------ |
-| `429`    | Retries, up to 10 times.                                                                         |
+| `429`    | Retries, up to 9 times.                                                                          |
 | `503`    | Retries, up to 8 times.                                                                          |
 | `400`    | Shows the error at once.                                                                         |
 | `402`    | Disables the key for billing. See [Billing disables](/concepts/model-failover#billing-disables). |
