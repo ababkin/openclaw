@@ -385,6 +385,8 @@ protection, and changed policy reconsider it. Delivery cleanup resumes idle main
 when it releases the session's remaining recovery protection. Temporary protection from active
 sessions, runtime providers, or recent activity does not suppress planning on
 ordinary writes; age deadlines and the periodic recheck still resume idle cleanup.
+While entry pressure still requires cleanup, capacity maintenance revisits entries
+once temporary write protection ends, without requiring another entry write.
 If writes invalidate an automatic maintenance plan, its replacement waits for
 the scheduled retry delay (one second, then two seconds). Further writes coalesce
 into that retry without postponing it indefinitely. Three

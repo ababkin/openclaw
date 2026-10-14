@@ -645,6 +645,21 @@ async function runPendingMaintenance(
       }
     }
     owner.rejections = 0;
+    if (
+      operation.input.activeSessionKeys.length > 0 &&
+      owner.ageFact?.entryCount !== undefined &&
+      !hasCurrentNoCandidates() &&
+      shouldRunSessionEntryMaintenance({
+        entryCount: owner.ageFact.entryCount,
+        maxEntries: maintenance.maxEntries,
+        force: false,
+      }) &&
+      isCurrent()
+    ) {
+      // This pass released its captured write protection; reconsider those rows once.
+      scheduleMaintenanceAfterWriteQuiet(databasePath, owner);
+      return;
+    }
   } catch (error) {
     owner.noCandidates = false;
     preservation?.dispose();
