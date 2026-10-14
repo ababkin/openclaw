@@ -24,13 +24,23 @@ function readToolName(record: Record<string, unknown>): string | undefined {
 }
 
 function hasToolArgs(record: Record<string, unknown>): boolean {
-  return "arguments" in record || "args" in record || "input" in record || "parameters" in record;
+  const parameters = asOptionalRecord(record.parameters);
+  // Keep tool-definition schemas literal.
+  return (
+    "arguments" in record ||
+    "args" in record ||
+    "input" in record ||
+    ("parameters" in record && !(parameters?.type === "object" && "properties" in parameters))
+  );
 }
 
-function classifyJsonValue(value: unknown): ToolCallShapedTextDetection | null {
+function classifyJsonValue(
+  value: unknown,
+  allowedToolNames?: ReadonlySet<string>,
+): ToolCallShapedTextDetection | null {
   if (Array.isArray(value)) {
     for (const item of value) {
-      const detection = classifyJsonValue(item);
+      const detection = classifyJsonValue(item, allowedToolNames);
       if (detection) {
         return detection;
       }
@@ -45,18 +55,24 @@ function classifyJsonValue(value: unknown): ToolCallShapedTextDetection | null {
 
   const toolCalls = record.tool_calls ?? record.toolCalls;
   if (Array.isArray(toolCalls)) {
-    return classifyJsonValue(toolCalls) ?? { kind: "json_tool_call" };
+    return (
+      classifyJsonValue(toolCalls, allowedToolNames) ??
+      (allowedToolNames ? null : { kind: "json_tool_call" })
+    );
   }
 
   const functionRecord = asOptionalRecord(record.function);
   if (functionRecord) {
     const toolName = readToolName(functionRecord);
-    if (toolName && hasToolArgs(functionRecord)) {
+    if (toolName && (allowedToolNames?.has(toolName) ?? true) && hasToolArgs(functionRecord)) {
       return { kind: "json_tool_call", toolName };
     }
   }
 
   const toolName = readToolName(record);
+  if (toolName && allowedToolNames && !allowedToolNames.has(toolName)) {
+    return null;
+  }
   if (toolName && hasToolArgs(record)) {
     return { kind: "json_tool_call", toolName };
   }
@@ -218,7 +234,7 @@ export function detectToolCallShapedText(text: string): ToolCallShapedTextDetect
 }
 
 function isStructuredCall(text: string, names: ReadonlySet<string>): boolean {
-  const detection = classifyJsonValue(safeParseJson(text));
+  const detection = classifyJsonValue(safeParseJson(text), names);
   if (detection?.toolName && names.has(detection.toolName)) {
     return true;
   }
@@ -231,7 +247,7 @@ function isStructuredCall(text: string, names: ReadonlySet<string>): boolean {
     return true;
   }
   const wrapper = /^<(tool_call|function_call)>\s*([\s\S]*?)\s*<\/\1>$/i.exec(text);
-  const wrapped = wrapper ? classifyJsonValue(safeParseJson(wrapper[2] ?? "")) : null;
+  const wrapped = wrapper ? classifyJsonValue(safeParseJson(wrapper[2] ?? ""), names) : null;
   return Boolean(wrapped?.toolName && names.has(wrapped.toolName));
 }
 
