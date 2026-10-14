@@ -106,7 +106,7 @@ function signalChild(child, signal, detached) {
   }
 }
 
-async function runCliShimInner(moduleUrl, options, nodeArgs) {
+async function runCliShimProcess(moduleUrl, options, nodeArgs, onReady) {
   // Native entrypoints need the explicit dependency link without loading TSX.
   if (nodeArgs.length === 0) {
     const modulesDir = resolveConfiguredModulesDir(SHIM_CHECKOUT_ROOT);
@@ -115,10 +115,17 @@ async function runCliShimInner(moduleUrl, options, nodeArgs) {
     }
   }
   const nodeExecutable = options.executable ?? (process.versions.bun ? "node" : process.execPath);
+  // The inherited-stdio Vitest wrapper alone supplies an artifact owner here.
   const commandArgs = [
     ...nodeArgs,
     ...resolveForwardedNodeCompilerArgs(),
     ...(options.execArgv ?? []),
+    ...(options.workerRun
+      ? [
+          fileURLToPath(new URL("./vitest-worker-bootstrap.mts", import.meta.url)),
+          options.workerRun.descriptor.directory,
+        ]
+      : []),
     fileURLToPath(new URL(options.implementation, moduleUrl)),
     ...process.argv.slice(2),
   ];
@@ -137,7 +144,9 @@ async function runCliShimInner(moduleUrl, options, nodeArgs) {
       args: commandArgs,
       cwd: process.cwd(),
       env: process.env,
-      stdio: options.stdio ?? "inherit",
+      stdio: options.workerRun
+        ? ["inherit", "inherit", "inherit", "ipc"]
+        : (options.stdio ?? "inherit"),
       signalKillGraceMs: options.forceKillDelayMs,
       requireProcessTreeExit: true,
       waitForCleanupRelease: true,
@@ -146,6 +155,7 @@ async function runCliShimInner(moduleUrl, options, nodeArgs) {
         interrupted = true;
       },
       onReady(child) {
+        onReady?.(child);
         child.once("exit", (_code, signal) => {
           childSignal = signal;
         });
@@ -199,8 +209,11 @@ async function runCliShimInner(moduleUrl, options, nodeArgs) {
       cwd: process.cwd(),
       detached,
       env: process.env,
-      stdio: options.stdio ?? "inherit",
+      stdio: options.workerRun
+        ? ["inherit", "inherit", "inherit", "ipc"]
+        : (options.stdio ?? "inherit"),
     });
+    onReady?.(child);
     const result = await new Promise((resolve, reject) => {
       child.once("error", reject);
       child.once("close", (code, signal) => resolve({ code, signal }));
@@ -217,10 +230,38 @@ async function runCliShimInner(moduleUrl, options, nodeArgs) {
     process.exitCode = exitCode;
   } catch (error) {
     cleanup();
+    if (options.workerRun) {
+      throw error;
+    }
     console.error(error);
     const exitCode = options.failureExitCode ?? 1;
     writeFailureTrailer(options.failureTool, exitCode);
     process.exitCode = exitCode;
+  }
+}
+
+async function runCliShimInner(moduleUrl, options, nodeArgs) {
+  if (!options.workerRun) {
+    return runCliShimProcess(moduleUrl, options, nodeArgs);
+  }
+  // The forwarding shim owns its child's artifact loan until managed cleanup joins.
+  const completion = Promise.withResolvers();
+  /** @type {Promise<unknown> | undefined} */
+  let borrower;
+  try {
+    await runCliShimProcess(moduleUrl, options, nodeArgs, (child) => {
+      borrower = options.workerRun.borrow(child, completion.promise);
+    });
+    completion.resolve(process.exitCode ?? 0);
+  } catch (error) {
+    if (borrower) {
+      completion.reject(error);
+    }
+    throw error;
+  } finally {
+    if (borrower) {
+      await borrower;
+    }
   }
 }
 
