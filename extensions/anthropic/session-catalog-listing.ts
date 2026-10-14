@@ -317,13 +317,12 @@ export async function listClaudeSessionCatalog(params: {
         params.onHost?.(common);
         return common;
       }
-      const unavailable: ClaudeSessionCatalogHost = {
-        ...common,
+      const unavailable: ClaudeSessionCatalogHost = Object.assign({}, common, {
         error: {
           code: "NODE_INVOKE_FAILED",
           message: "Paired node Claude sessions are unavailable",
         },
-      };
+      });
       const eventualHost = Promise.resolve()
         .then(async () => {
           const raw = await params.runtime.nodes.invoke({
