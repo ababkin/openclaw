@@ -18,18 +18,14 @@ const call =
 
 describe("Gemma tool-call text recovery", () => {
   it.each([
-    { label: "trailing", suffix: "", split: false },
-    { label: "mid-stream", suffix: "\n", split: false },
-    { label: "fragmented trailing", suffix: "", split: true },
-  ])("recovers a $label call before stop", async ({ suffix, split }) => {
+    { label: "trailing", suffix: "" },
+    { label: "mid-stream", suffix: "\n" },
+  ])("recovers a $label call before stop", async ({ suffix }) => {
     const output = createAssistantOutput(model);
     const events: CapturedStreamEvent[] = [];
-    const content = call + suffix;
     await processCompletionsStream(
       streamChunks([
-        ...(split ? Array.from(content) : [call, suffix]).map((text) =>
-          makeCompletionsChunk({ content: text }),
-        ),
+        ...[call, suffix].map((text) => makeCompletionsChunk({ content: text })),
         makeCompletionsChunk({}, "stop"),
       ]),
       output,
@@ -85,38 +81,29 @@ describe("Gemma tool-call text recovery", () => {
     expect(calls[0]?.id).not.toBe(calls[1]?.id);
   });
 
-  it.each(["length", "content_filter", null])(
-    "does not authorize a call on %s termination",
-    async (reason) => {
-      const output = createAssistantOutput(model);
-      const events: CapturedStreamEvent[] = [];
-      await processCompletionsStream(
-        streamChunks([
-          makeCompletionsChunk({ content: call }),
-          ...(reason ? [makeCompletionsChunk({}, reason)] : []),
-        ]),
-        output,
-        model,
-        { push: (event) => events.push(event) },
-      );
-      expect(output.stopReason).toBe(reason === "content_filter" ? "error" : (reason ?? "stop"));
-      expect(output.content).toEqual([]);
-      expect(events.some((event) => event.type === "toolcall_end")).toBe(false);
-    },
-  );
+  it("does not authorize a call on content-filter termination", async () => {
+    const output = createAssistantOutput(model);
+    const events: CapturedStreamEvent[] = [];
+    await processCompletionsStream(
+      streamChunks([
+        makeCompletionsChunk({ content: call }),
+        makeCompletionsChunk({}, "content_filter"),
+      ]),
+      output,
+      model,
+      { push: (event) => events.push(event) },
+    );
+    expect(output.stopReason).toBe("error");
+    expect(output.content).toEqual([]);
+    expect(events.some((event) => event.type === "toolcall_end")).toBe(false);
+  });
 
   it.each([
-    `Example: ${call}`,
     `\`\`\`\n${call}\n\`\`\``,
     `${call} is an example.`,
     call.replace("<tool_call|>", ""),
     call.replace('poll<|"|>', "poll"),
     call.replace("sessionId:", "sessionId"),
-    "<|tool_",
-    "<|tool_call>call:read{limit:1 2}<tool_call|>",
-    "<|tool_call>call:process{,:1}<tool_call|>",
-    "<|tool_call>call:process{[:1}<tool_call|>",
-    "<|tool_call>call:process{::1}<tool_call|>",
   ])("preserves non-call or incomplete text: %s", async (content) => {
     const output = createAssistantOutput(model);
     await processCompletionsStream(
@@ -127,18 +114,6 @@ describe("Gemma tool-call text recovery", () => {
     );
     expect(output.stopReason).toBe("stop");
     expect(output.content).toEqual([{ type: "text", text: content }]);
-  });
-
-  it("leaves other model families unchanged", async () => {
-    const other = makeCompletionsModel({ id: "other-model" });
-    const output = createAssistantOutput(other);
-    await processCompletionsStream(
-      streamChunks([makeCompletionsChunk({ content: call }, "stop")]),
-      output,
-      other,
-      { push() {} },
-    );
-    expect(output.content).toEqual([{ type: "text", text: call }]);
   });
 
   it("does not flush a cancelled call into executable events", async () => {

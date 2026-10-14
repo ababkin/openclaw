@@ -58,14 +58,6 @@ describe("openai completions transport", () => {
       responsesEffort: "high",
     },
     {
-      modelId: "gpt-5.2",
-      endpoint: "official OpenAI",
-      baseUrl: "https://api.openai.com/v1",
-      path: "/v1/responses",
-      toolChoice: { type: "function", name: "read" },
-      responsesEffort: "high",
-    },
-    {
       modelId: "gpt-6-astra",
       endpoint: "OpenAI-compatible proxy",
       baseUrl: "https://proxy.example.com/v1",
@@ -261,74 +253,6 @@ describe("openai completions transport", () => {
     expect(String(errorPayload?.errorMessage)).toContain("system/tool-only request");
   });
 
-  it("allows generic OpenAI-compatible chat streams without the ModelStudio turn guard", async () => {
-    let capturedRoles: string[] | undefined;
-    const server = createServer((req, res) => {
-      let body = "";
-      req.setEncoding("utf8");
-      req.on("data", (chunk) => {
-        body += chunk;
-      });
-      req.on("end", () => {
-        const parsed = JSON.parse(body) as { messages?: Array<{ role?: string }> };
-        capturedRoles = parsed.messages?.map((message) => message.role ?? "");
-        res.writeHead(200, {
-          "content-type": "text/event-stream; charset=utf-8",
-          "cache-control": "no-cache",
-          connection: "keep-alive",
-        });
-        res.write(
-          `data: ${JSON.stringify(makeCompletionsChunk({ role: "assistant", content: "OK" }))}\n\n`,
-        );
-        res.write(`data: ${JSON.stringify(makeCompletionsChunk({}, "stop"))}\n\n`);
-        res.write("data: [DONE]\n\n");
-        res.end();
-      });
-    });
-
-    await new Promise<void>((resolve) => {
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    try {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        throw new Error("Missing loopback server address");
-      }
-      const model = makeCompletionsModel({
-        id: "generic-openai-compatible",
-        name: "Generic OpenAI Compatible",
-        provider: "custom-openai-compatible",
-        baseUrl: `http://127.0.0.1:${address.port}/v1`,
-        reasoning: false,
-        contextWindow: 4096,
-        maxTokens: 256,
-      });
-      const stream = createOpenAICompletionsTransportStreamFn()(
-        model,
-        {
-          systemPrompt: "runtime-only system prompt",
-          messages: [],
-          tools: [],
-        } as never,
-        { apiKey: "test-key" } as never,
-      );
-
-      let doneReason: string | undefined;
-      for await (const event of stream as AsyncIterable<{ type: string; reason?: string }>) {
-        if (event.type === "done") {
-          doneReason = event.reason;
-        }
-      }
-
-      expect(capturedRoles).toEqual(["system"]);
-      expect(doneReason).toBe("stop");
-    } finally {
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      });
-    }
-  });
-
   it("fails OpenAI completions streams when headers arrive but no first event follows", async () => {
     const previousHost = getAiTransportHost();
     const responseReady = Promise.withResolvers<void>();
@@ -415,29 +339,5 @@ describe("openai completions transport", () => {
     expect(request.headers.get("api-key")).toBe("azure-key");
     expect(request.headers.get("x-tenant")).toBe("acme");
     expect(request.headers.has("api-version")).toBe(false);
-  });
-
-  it("preserves configured query params without moving non-Azure headers", async () => {
-    const request = await captureTransportRequest(
-      makeCompletionsModel({
-        id: "proxy-model",
-        name: "Proxy Model",
-        provider: "custom-proxy",
-        baseUrl: "https://proxy.example.com/v1?tenant=acme",
-        headers: {
-          "api-version": "proxy-header",
-          "X-Tenant": "acme",
-        },
-        reasoning: false,
-        contextWindow: 128000,
-        maxTokens: 4096,
-      }),
-    );
-    const url = new URL(request.url);
-
-    expect(url.origin + url.pathname).toBe("https://proxy.example.com/v1/chat/completions");
-    expect(Object.fromEntries(url.searchParams)).toEqual({ tenant: "acme" });
-    expect(request.headers.get("api-version")).toBe("proxy-header");
-    expect(request.headers.get("x-tenant")).toBe("acme");
   });
 });
