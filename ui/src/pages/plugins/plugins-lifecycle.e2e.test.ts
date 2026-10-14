@@ -231,6 +231,13 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
         await gateway.waitForRequest("plugins.list", { after: listReads });
       }
       await captureScreenshot(page, `lifecycle-uninstall-inspection-${inspection}.png`);
+      // Keep reloads unavailable until feedback is checked, including any successor read.
+      await gateway.setMethodResponse(
+        "config.get",
+        withWarnings
+          ? { __mockError: { code: "UNAVAILABLE", message: refreshError } }
+          : configSnapshot(false),
+      );
       await gateway.setMethodResponse("plugins.list", initialInventory);
       // Background reads must see the same outage as the post-removal refresh.
       await gateway.setMethodResponse(
