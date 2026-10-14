@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isPlainTextToolCallAttempt } from "./attempt.js";
 
 const names = new Set(["write", "read"]);
+const hasToolName = (name: string) => names.has(name);
 const call = '{"name":"write","arguments":{"path":"proof.txt","content":"OK"}}';
 const fenced = `\`\`\`json\n${call}\n\`\`\``;
 const definition =
@@ -10,6 +11,8 @@ const definition =
 describe("non-executing text tool-call detection", () => {
   it.each([
     call,
+    `{"function_call":${call}}`,
+    `{"functionCall":${call}}`,
     '{"name":"write","parameters":{"path":"proof.txt","content":"OK"}}',
     fenced,
     `I'll call write now.\n${fenced}`,
@@ -25,7 +28,7 @@ describe("non-executing text tool-call detection", () => {
     `<tool_call>${call}</tool_call>`,
     "```xml\n<function=read><parameter=path>proof.txt</parameter></function>\n```",
   ])("recognizes a structured attempt: %s", (text) => {
-    expect(isPlainTextToolCallAttempt(text, names)).toBe(true);
+    expect(isPlainTextToolCallAttempt(text, hasToolName)).toBe(true);
   });
 
   it.each([
@@ -33,6 +36,9 @@ describe("non-executing text tool-call detection", () => {
     '{"name":"write","description":"an available tool"}',
     '{"name":"unregistered","arguments":{}}',
     definition,
+    '{"name":"write","description":"Write a file","parameters":{"type":"object"}}',
+    '{"name":"write","parameters":{"type":"object"}}',
+    '{"type":"function","function":{"name":"write","description":"Write a file","parameters":{}}}',
     `{"type":"function","function":${definition}}`,
     `Here is an example of the API:\n${fenced}`,
     `I'll show an example.\n${fenced}`,
@@ -48,11 +54,11 @@ describe("non-executing text tool-call detection", () => {
     `\`\`\`text\ncall write proof.txt\n\`\`\``,
     '```json\n{"name":"write","arguments":{}}',
   ])("preserves prose, examples, and unknown tools: %s", (text) => {
-    expect(isPlainTextToolCallAttempt(text, names)).toBe(false);
+    expect(isPlainTextToolCallAttempt(text, hasToolName)).toBe(false);
   });
 
   it("uses only the current offered tool names", () => {
-    expect(isPlainTextToolCallAttempt(fenced, new Set(["read"]))).toBe(false);
-    expect(isPlainTextToolCallAttempt(fenced, new Set())).toBe(false);
+    expect(isPlainTextToolCallAttempt(fenced, (name) => name === "read")).toBe(false);
+    expect(isPlainTextToolCallAttempt(fenced, () => false)).toBe(false);
   });
 });

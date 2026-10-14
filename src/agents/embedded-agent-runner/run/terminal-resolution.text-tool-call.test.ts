@@ -53,9 +53,24 @@ describe("terminal resolution for a tool call written as text", () => {
       if (result.action === "complete") {
         expect(result.result.meta.error).toMatchObject({ kind: "incomplete_turn" });
         expect(result.result.payloads?.[0]?.text).toContain("No tool ran for that call");
+        expect(result.result.payloads?.[0]?.text).toContain("please verify before retrying");
       }
     },
   );
+
+  it("warns about cumulative side effects when the text retry is exhausted", async () => {
+    const input = makeTextCallInput();
+    input.retryState.textToolCallAttempts = 1;
+    input.replayState.hadPotentialSideEffects = true;
+    input.replayState.replaySafe = false;
+    const result = await resolveEmbeddedRunTerminal(input);
+    expect(result.action).toBe("complete");
+    expect(input.sessionPromptState.activateInternalPrompt).not.toHaveBeenCalled();
+    if (result.action === "complete") {
+      expect(result.result.payloads?.[0]?.text).toContain("No tool ran for that call");
+      expect(result.result.payloads?.[0]?.text).toContain("please verify before retrying");
+    }
+  });
 
   it("nudges once, then returns a visible failure instead of successful JSON text", async () => {
     const input = makeTextCallInput();

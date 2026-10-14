@@ -29,6 +29,7 @@ import {
   resolveCurrentAttemptAssistant,
 } from "./attempt-terminal-evidence.js";
 import { isRunnerToolCallBlock } from "./attempt-tool-call-block-type.js";
+import { resolveToolCallName } from "./attempt-tool-call-name-resolution.js";
 import { hasComposedVisibleAnswerAfterSettledTools } from "./incomplete-turn-classification.js";
 import { shouldTreatEmptyAssistantReplyAsSilent } from "./incomplete-turn-recovery.js";
 import { resolveSilentToolResultReplyPayload } from "./incomplete-turn-resolution.js";
@@ -277,13 +278,14 @@ export function completeEmbeddedAttemptResult(
     terminal: state.terminal,
   });
   const assistant = resolveCurrentAttemptAssistant(state);
+  const allowedToolNames = input.prepared.toolCatalog.toolSearchRunPlan.liveAllowedToolNames;
   const textToolCallAttempt =
+    allowedToolNames.size > 0 &&
     state.terminal.kind === "ok" &&
     assistant?.stopReason === "stop" &&
     !assistant.content.some(isRunnerToolCallBlock) &&
-    isPlainTextToolCallAttempt(
-      extractAssistantTranscriptSourceText(assistant) ?? "",
-      input.prepared.toolCatalog.toolSearchRunPlan.liveAllowedToolNames,
+    isPlainTextToolCallAttempt(extractAssistantTranscriptSourceText(assistant) ?? "", (name) =>
+      Boolean(resolveToolCallName(name, allowedToolNames, undefined, true)),
     );
   const result: EmbeddedRunAttemptWithReceiptEvidence = {
     ...(textToolCallAttempt ? { textToolCallAttempt: true } : {}),

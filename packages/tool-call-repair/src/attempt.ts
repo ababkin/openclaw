@@ -1,6 +1,7 @@
 import { safeParseJson } from "@openclaw/normalization-core/json-coercion";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString as readTrimmedString } from "@openclaw/normalization-core/string-coerce";
+import type { PlainTextToolCallNameMatcher } from "./contracts.js";
 import { parseStandalonePlainTextToolCallBlocks } from "./payload.js";
 
 type ToolCallShapedTextDetection = {
@@ -30,17 +31,20 @@ function hasToolArgs(record: Record<string, unknown>): boolean {
     "arguments" in record ||
     "args" in record ||
     "input" in record ||
-    ("parameters" in record && !(parameters?.type === "object" && "properties" in parameters))
+    ("parameters" in record &&
+      typeof record.description !== "string" &&
+      record.type !== "function" &&
+      parameters?.type !== "object")
   );
 }
 
 function classifyJsonValue(
   value: unknown,
-  allowedToolNames?: ReadonlySet<string>,
+  hasToolName?: PlainTextToolCallNameMatcher["hasExactName"],
 ): ToolCallShapedTextDetection | null {
   if (Array.isArray(value)) {
     for (const item of value) {
-      const detection = classifyJsonValue(item, allowedToolNames);
+      const detection = classifyJsonValue(item, hasToolName);
       if (detection) {
         return detection;
       }
@@ -56,21 +60,25 @@ function classifyJsonValue(
   const toolCalls = record.tool_calls ?? record.toolCalls;
   if (Array.isArray(toolCalls)) {
     return (
-      classifyJsonValue(toolCalls, allowedToolNames) ??
-      (allowedToolNames ? null : { kind: "json_tool_call" })
+      classifyJsonValue(toolCalls, hasToolName) ?? (hasToolName ? null : { kind: "json_tool_call" })
     );
   }
 
-  const functionRecord = asOptionalRecord(record.function);
+  const functionRecord = asOptionalRecord(
+    record.function ?? record.function_call ?? record.functionCall,
+  );
   if (functionRecord) {
+    if (record.type === "function" && "parameters" in functionRecord) {
+      return null;
+    }
     const toolName = readToolName(functionRecord);
-    if (toolName && (allowedToolNames?.has(toolName) ?? true) && hasToolArgs(functionRecord)) {
+    if (toolName && (hasToolName?.(toolName) ?? true) && hasToolArgs(functionRecord)) {
       return { kind: "json_tool_call", toolName };
     }
   }
 
   const toolName = readToolName(record);
-  if (toolName && allowedToolNames && !allowedToolNames.has(toolName)) {
+  if (toolName && hasToolName && !hasToolName(toolName)) {
     return null;
   }
   if (toolName && hasToolArgs(record)) {
@@ -233,31 +241,37 @@ export function detectToolCallShapedText(text: string): ToolCallShapedTextDetect
   );
 }
 
-function isStructuredCall(text: string, names: ReadonlySet<string>): boolean {
-  const detection = classifyJsonValue(safeParseJson(text), names);
-  if (detection?.toolName && names.has(detection.toolName)) {
+function isStructuredCall(
+  text: string,
+  hasToolName: PlainTextToolCallNameMatcher["hasExactName"],
+): boolean {
+  const detection = classifyJsonValue(safeParseJson(text), hasToolName);
+  if (detection?.toolName) {
     return true;
   }
-  if (parseStandalonePlainTextToolCallBlocks(text, { allowedToolNames: names })) {
+  if (parseStandalonePlainTextToolCallBlocks(text)?.some((block) => hasToolName(block.name))) {
     return true;
   }
   const invoke =
     /^<(invoke|tool_call|function_call)\s+name=["']([^"']+)["']\s*>[\s\S]*<\/\1>$/i.exec(text);
-  if (invoke && names.has(invoke[2] ?? "")) {
+  if (invoke && hasToolName(invoke[2] ?? "")) {
     return true;
   }
   const wrapper = /^<(tool_call|function_call)>\s*([\s\S]*?)\s*<\/\1>$/i.exec(text);
-  const wrapped = wrapper ? classifyJsonValue(safeParseJson(wrapper[2] ?? ""), names) : null;
-  return Boolean(wrapped?.toolName && names.has(wrapped.toolName));
+  const wrapped = wrapper ? classifyJsonValue(safeParseJson(wrapper[2] ?? ""), hasToolName) : null;
+  return Boolean(wrapped?.toolName);
 }
 
 /** Detects a non-executable near miss; this must never be used to dispatch a tool. */
-export function isPlainTextToolCallAttempt(text: string, names: ReadonlySet<string>): boolean {
+export function isPlainTextToolCallAttempt(
+  text: string,
+  hasToolName: PlainTextToolCallNameMatcher["hasExactName"],
+): boolean {
   const trimmed = text.trim();
-  if (!names.size || !trimmed || trimmed.length > 256_000) {
+  if (!trimmed || trimmed.length > 256_000) {
     return false;
   }
-  if (isStructuredCall(trimmed, names)) {
+  if (isStructuredCall(trimmed, hasToolName)) {
     return true;
   }
   const fence =
@@ -280,9 +294,9 @@ export function isPlainTextToolCallAttempt(text: string, names: ReadonlySet<stri
   // Accept only a tool label or complete action announcement, not explanatory prose.
   if (
     !body ||
-    (prefix && !names.has(prefix) && !names.has(announcedTool ?? "") && !fileAnnouncement)
+    (prefix && !hasToolName(prefix) && !hasToolName(announcedTool ?? "") && !fileAnnouncement)
   ) {
     return false;
   }
-  return isStructuredCall(body.trim(), names);
+  return isStructuredCall(body.trim(), hasToolName);
 }
