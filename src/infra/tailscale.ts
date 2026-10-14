@@ -31,6 +31,7 @@ import {
   type TailscaleRouteOwnerMessage,
 } from "./tailscale-route-owner-protocol.js";
 import { TailscaleRouteOwnershipConflictError } from "./tailscale-route-ownership-error.js";
+import { TailscaleServeDisabledError } from "./tailscale-serve-disabled-error.js";
 
 const TAILSCALE_STATUS_ATTEMPTS = 3;
 const TAILSCALE_STATUS_RETRY_DELAY_MS = 500;
@@ -188,7 +189,23 @@ type TailscaleRouteOwnerFailure = Pick<
   "code" | "stdout" | "stderr"
 >;
 
-function routeClaimError(message: TailscaleRouteOwnerFailure, serveStatus: string): Error {
+function routeClaimError(
+  message: TailscaleRouteOwnerFailure,
+  serveStatus: string,
+  mode: "serve" | "funnel",
+  startupDeadlineExpired: boolean,
+): Error {
+  if (
+    mode === "serve" &&
+    (message.code !== null || startupDeadlineExpired) &&
+    // Serve can exit zero or wait for policy enablement until our deadline stops it.
+    // Inspect its final output after retirement; additional diagnostics stay fatal.
+    /^\s*Serve is not enabled on your tailnet\.(?:\s+(?:To enable, visit:\s+)?https:\/\/\S+)?\s*$/u.test(
+      `${message.stderr}\n${message.stdout}`,
+    )
+  ) {
+    return new TailscaleServeDisabledError();
+  }
   const conflict = /listener already exists for port (\d+)/i.exec(
     `${message.stderr}\n${message.stdout}`,
   );
@@ -216,6 +233,7 @@ function waitWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<boo
 }
 
 async function startTailscaleRouteOwner(
+  mode: "serve" | "funnel",
   argv: string[],
   serveStatus: string,
   signal?: AbortSignal,
@@ -240,6 +258,7 @@ async function startTailscaleRouteOwner(
   let stopFailure: Error | undefined;
   const { promise: exited, resolve: resolveExit } = createDeferredCore();
 
+  let startupDeadlineExpired = false;
   const startup = new Promise<void>((resolve, reject) => {
     const settle = (error?: unknown) => {
       clearTimeout(startupTimer);
@@ -250,10 +269,10 @@ async function startTailscaleRouteOwner(
         resolve();
       }
     };
-    const startupTimer = setTimeout(
-      () => settle(new Error("Tailscale route claim did not become ready within 15 seconds")),
-      TAILSCALE_ROUTE_START_TIMEOUT_MS,
-    );
+    const startupTimer = setTimeout(() => {
+      startupDeadlineExpired = true;
+      settle(new Error("Tailscale route claim did not become ready within 15 seconds"));
+    }, TAILSCALE_ROUTE_START_TIMEOUT_MS);
     startupTimer.unref?.();
     const onAbort = () => settle(signal?.reason);
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -289,6 +308,8 @@ async function startTailscaleRouteOwner(
             stderr: event.stderr,
           },
           serveStatus,
+          mode,
+          startupDeadlineExpired,
         );
         if (!ready) {
           settle(failure);
@@ -326,6 +347,9 @@ async function startTailscaleRouteOwner(
       worker.kill("SIGTERM");
     }
     if (await waitWithTimeout(exited, TAILSCALE_ROUTE_STOP_TIMEOUT_MS)) {
+      if (stopFailure) {
+        throw stopFailure;
+      }
       return;
     }
     if (routePid) {
@@ -341,7 +365,15 @@ async function startTailscaleRouteOwner(
     signal?.throwIfAborted();
     return { exited, isActive: () => active, stop };
   } catch (error) {
-    await stop();
+    try {
+      await stop();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [failure ?? error, cleanupError],
+        "Tailscale route startup and cleanup failed",
+        { cause: cleanupError },
+      );
+    }
     signal?.throwIfAborted();
     throw failure ?? error;
   }
@@ -437,6 +469,7 @@ async function claimTailscaleRouteOwned(
     }
     assertCurrent();
     return startTailscaleRouteOwner(
+      mode,
       [
         bin,
         ...prefix,
