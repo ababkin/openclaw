@@ -260,7 +260,7 @@ async function startTailscaleRouteOwner(
 
   let startupDeadlineExpired = false;
   const startup = new Promise<void>((resolve, reject) => {
-    const settle = (error?: unknown) => {
+    const settle = (error?: Error) => {
       clearTimeout(startupTimer);
       signal?.removeEventListener("abort", onAbort);
       if (error) {
@@ -274,7 +274,8 @@ async function startTailscaleRouteOwner(
       settle(new Error("Tailscale route claim did not become ready within 15 seconds"));
     }, TAILSCALE_ROUTE_START_TIMEOUT_MS);
     startupTimer.unref?.();
-    const onAbort = () => settle(signal?.reason);
+    const onAbort = () =>
+      settle(toErrorObject(signal?.reason, "Tailscale route claim was interrupted"));
     signal?.addEventListener("abort", onAbort, { once: true });
 
     worker.on("message", (message: unknown) => {
