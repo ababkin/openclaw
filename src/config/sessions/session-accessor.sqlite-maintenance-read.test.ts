@@ -60,7 +60,7 @@ it("reads warm maintenance without a transaction and observes newly committed ca
   });
 });
 
-it.each(["durable", "warm durable", "runtime"] as const)(
+it.each(["durable", "warm durable", "direct active", "runtime"] as const)(
   "resolves %s protected capacity with only the preservation facts it needs",
   async (protection) => {
     await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
@@ -73,7 +73,7 @@ it.each(["durable", "warm durable", "runtime"] as const)(
             writeSessionEntry(database, key, {
               sessionId: `capacity-protected-${index}`,
               updatedAt: Date.now(),
-              modelSelectionLocked: protection !== "runtime",
+              modelSelectionLocked: protection === "durable" || protection === "warm durable",
             });
           }
         }, options);
@@ -83,7 +83,8 @@ it.each(["durable", "warm durable", "runtime"] as const)(
         databaseOptions: resolveSessionReclamationDatabaseOptions(options),
         materializedPlans: [],
         input: {
-          activeSessionKeys: protection === "runtime" ? keys : [],
+          activeSessionKeys:
+            protection === "direct active" ? keys.map((key) => key.toUpperCase()) : [],
           archiveDirectory: state.sessionsDir(),
           storePath: path.join(state.sessionsDir(), "sessions.json"),
           maintenance: resolveMaintenanceConfigFromInput({
@@ -102,13 +103,25 @@ it.each(["durable", "warm durable", "runtime"] as const)(
         });
         write([1]);
       }
-      if (protection !== "runtime") {
+      if (protection === "durable" || protection === "warm durable") {
         await expect(runSqliteSessionReclamation({ plan })).resolves.toMatchObject({
           kind: "maintenance-plan",
           readOnlyInput: expect.any(Object),
           value: { archived: 0, durableNoCandidates: true },
         });
       } else {
+        if (protection === "direct active") {
+          const result = await runSqliteSessionReclamation({ plan });
+          expect(result).toMatchObject({
+            kind: "maintenance-plan",
+            readOnlyInput: expect.any(Object),
+            value: { archived: 0 },
+          });
+          if (result.kind === "maintenance-plan") {
+            expect(result.value.durableNoCandidates).not.toBe(true);
+          }
+          plan.input.activeSessionKeys = [];
+        }
         await expect(runSqliteSessionReclamation({ plan })).resolves.toEqual({
           kind: "maintenance-preservation-required",
         });
@@ -117,13 +130,17 @@ it.each(["durable", "warm durable", "runtime"] as const)(
             ...plan,
             input: {
               ...plan.input,
-              preservation: { providerKeys: [], workIdentities: [], lifecycleIdentities: [] },
+              preservation: {
+                providerKeys: protection === "runtime" ? [...keys] : [],
+                workIdentities: [],
+                lifecycleIdentities: [],
+              },
             },
           },
         });
         expect(result.kind).toBe("maintenance-plan");
         if (result.kind === "maintenance-plan") {
-          expect(result.value.archived).toBe(0);
+          expect(result.value.archived).toBe(protection === "runtime" ? 0 : 1);
           expect(result.value.durableNoCandidates).not.toBe(true);
         }
       }

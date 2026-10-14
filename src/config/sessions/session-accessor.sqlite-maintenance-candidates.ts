@@ -130,6 +130,7 @@ export function readSessionMaintenanceAgeCandidates(params: {
 
 export function readSessionMaintenanceCapCandidates(params: {
   database: Pick<OpenClawAgentDatabase, "db">;
+  activeSessionKeys: readonly string[];
   excludedKeys: ReadonlySet<string>;
   overflow: number;
   readPreserveKeys: () => ReadonlySet<string> | undefined;
@@ -139,6 +140,9 @@ export function readSessionMaintenanceCapCandidates(params: {
     return { store: {}, durableNoCandidates: false };
   }
   const db = getSessionKysely(params.database.db);
+  const activeKeys = new Set(
+    params.activeSessionKeys.map(normalizeStoreSessionKey).filter(Boolean),
+  );
   // Only push down keys unchanged by Node/SQLite text conversion; retain exact membership below.
   const excludedKeys = [...params.excludedKeys].filter(
     (key) => toUSVString(key) === key && !key.includes("\0") && !/[\uFFFE\uFFFF]/u.test(key),
@@ -191,6 +195,7 @@ export function readSessionMaintenanceCapCandidates(params: {
     // Intrinsic protection needs no runtime snapshot; runtime/recent protection can end on its own.
     durableNoCandidates = false;
     if (
+      activeKeys.has(row.session_key) ||
       shouldPreserveMaintenanceEntry({
         key: row.session_key,
         entry,

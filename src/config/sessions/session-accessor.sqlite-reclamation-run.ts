@@ -417,29 +417,27 @@ export async function runSqliteSessionReclamation(params: {
           params.plan.databaseOptions.path,
         );
       };
-      const retained = await runExclusiveSqliteSessionWrite(
-        params.plan.databaseOptions,
-        async () => {
-          assertRequestCurrent();
-          if (
-            params.plan.kind === "maintenance-plan" ||
-            params.plan.kind === "maintenance-statistics" ||
-            params.plan.kind === "maintenance-age"
-          ) {
-            // Metadata uses its worker's generation claim, not a host read admission.
-            return undefined;
-          }
-          const database = getOpenClawAgentDatabaseIfOpen(params.plan.databaseOptions);
-          // Reuse an already-owned handle, but never open a host connection for reclamation.
-          return database && !database.db.isTransaction
-            ? retainOpenClawAgentDatabaseReadOnly(params.plan.databaseOptions)
-            : undefined;
-        },
-        "session.reclamation.retain",
-        undefined,
-        "foreground",
-        signal,
-      );
+      // Metadata uses its worker's generation claim, not a host read admission.
+      const retained =
+        params.plan.kind === "maintenance-plan" ||
+        params.plan.kind === "maintenance-statistics" ||
+        params.plan.kind === "maintenance-age"
+          ? undefined
+          : await runExclusiveSqliteSessionWrite(
+              params.plan.databaseOptions,
+              async () => {
+                assertRequestCurrent();
+                const database = getOpenClawAgentDatabaseIfOpen(params.plan.databaseOptions);
+                // Reuse an already-owned handle, but never open a host connection for reclamation.
+                return database && !database.db.isTransaction
+                  ? retainOpenClawAgentDatabaseReadOnly(params.plan.databaseOptions)
+                  : undefined;
+              },
+              "session.reclamation.retain",
+              undefined,
+              "foreground",
+              signal,
+            );
       if (retained?.found) {
         const { database, claim } = retained;
         try {

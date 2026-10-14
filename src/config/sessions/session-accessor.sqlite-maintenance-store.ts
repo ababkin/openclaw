@@ -233,6 +233,7 @@ export function prepareSessionEntryMaintenanceInDatabase(
         if (overflow > 0) {
           const candidates = readSessionMaintenanceCapCandidates({
             database: reader,
+            activeSessionKeys,
             overflow,
             readPreserveKeys,
             preserveRecentMs: maintenance.preserveRecentMs,
