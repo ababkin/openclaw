@@ -1,4 +1,4 @@
-import type { JSX } from "@solidjs/web";
+import type { JSX as SolidJSX } from "@solidjs/web";
 import { createMemo, createSignal, onCleanup } from "solid-js";
 import type { ControlUiEnvironment } from "../../../src/gateway/control-ui-bootstrap-contract.js";
 import { IdentityAvatarController } from "../lib/identity-avatar-loader.ts";
@@ -24,7 +24,7 @@ export type SidebarAgentCardProps = {
   onToggleMenu?: (trigger: HTMLElement) => void;
   onMenuPointerMove?: (trigger: HTMLElement, event: PointerEvent) => void;
   onMenuPointerLeave?: () => void;
-  onContextMenu?: JSX.EventHandler<HTMLElement, MouseEvent>;
+  onContextMenu?: SolidJSX.EventHandler<HTMLElement, MouseEvent>;
 };
 
 export function SidebarAgentCard(props: SidebarAgentCardProps) {
