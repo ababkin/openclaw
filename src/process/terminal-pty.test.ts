@@ -37,7 +37,7 @@ vi.mock("./terminal-pty-bun.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./terminal-pty-bun.js")>()),
   spawnBunTerminalPty: mocks.spawnBunTerminalPty,
 }));
-// mock-isolation: Keep Node runtime helpers unloaded under synthetic Bun and platform globals.
+// mock-isolation: Avoid importing the Node PTY backend under synthetic Bun and platform globals.
 vi.mock("./terminal-pty-node.js", () => ({
   spawnNodeTerminalPty: mocks.spawnNodeTerminalPty,
 }));
