@@ -100,7 +100,11 @@ describe.skipIf(process.platform === "win32")("local GitHub credential launch bo
       const probe = path.join(root, "host-credential-outcome.cjs");
       await fs.writeFile(
         probe,
-        'process.stdout.write(JSON.stringify({ host: process.env.GH_HOST, selected: process.env.GH_TOKEN === "synthetic-launch-token" && process.env.GH_ENTERPRISE_TOKEN === process.env.GH_TOKEN, cleared: !process.env.GITHUB_TOKEN && !process.env.GITHUB_ENTERPRISE_TOKEN }));',
+        `process.stdout.write(JSON.stringify({
+          host: process.env.GH_HOST,
+          selected: process.env[${JSON.stringify(host === "ghe.example.test" ? "GH_ENTERPRISE_TOKEN" : "GH_TOKEN")}] === "synthetic-launch-token",
+          cleared: !process.env.GITHUB_TOKEN && !process.env.GITHUB_ENTERPRISE_TOKEN && !process.env[${JSON.stringify(host === "ghe.example.test" ? "GH_TOKEN" : "GH_ENTERPRISE_TOKEN")}],
+        }));`,
       );
       const options = {
         command: [process.execPath, probe].map(quoteCliArg).join(" "),
