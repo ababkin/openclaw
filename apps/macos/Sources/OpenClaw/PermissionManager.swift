@@ -310,12 +310,20 @@ final class LocationPermissionRequestCoordinator {
 @MainActor
 final class LocationPermissionRequester: NSObject, CLLocationManagerDelegate {
     static let shared = LocationPermissionRequester()
-    private let manager = CLLocationManager()
+    private let manager: CLLocationManager
+    private let openSettings: @MainActor () -> Void
     private let requests = LocationPermissionRequestCoordinator()
     private var timeoutTask: Task<Void, Never>?
     private var requestedAlways = false
 
-    override init() {
+    init(
+        manager: CLLocationManager = CLLocationManager(),
+        openSettings: @escaping @MainActor () -> Void = {
+            SystemSettingsURLSupport.openPrivacySettings(for: .location)
+        })
+    {
+        self.manager = manager
+        self.openSettings = openSettings
         super.init()
         self.manager.delegate = self
     }
@@ -335,6 +343,10 @@ final class LocationPermissionRequester: NSObject, CLLocationManagerDelegate {
         guard !Task.isCancelled, isCurrent() else { return current }
         guard AppLaunchRuntimePlan.current.allowsActivation else {
             PermissionManager.reportDeferredRequest()
+            return current
+        }
+        if current == .denied || current == .restricted {
+            self.openSettings()
             return current
         }
 
@@ -372,7 +384,7 @@ final class LocationPermissionRequester: NSObject, CLLocationManagerDelegate {
             }
             guard !Task.isCancelled, let self, self.requests.hasPendingRequests else { return }
             if self.requests.hasCurrentRequests {
-                SystemSettingsURLSupport.openPrivacySettings(for: .location)
+                self.openSettings()
             }
             self.finish(status: self.manager.authorizationStatus)
         }
@@ -404,7 +416,7 @@ final class LocationPermissionRequester: NSObject, CLLocationManagerDelegate {
         let status = manager.authorizationStatus
         Task { @MainActor in
             if self.requests.hasCurrentRequests, status == .denied || status == .restricted {
-                SystemSettingsURLSupport.openPrivacySettings(for: .location)
+                self.openSettings()
             }
             self.finish(status: status)
         }

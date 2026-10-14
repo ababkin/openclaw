@@ -5,6 +5,27 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct PermissionManagerLocationTests {
+    @Test(arguments: [CLAuthorizationStatus.denied, .restricted])
+    func `enabling Location opens Settings when macOS cannot prompt again`(_ status: CLAuthorizationStatus) async {
+        let manager = FixtureLocationManager(status: status)
+        var openedSettings = 0
+        let requester = LocationPermissionRequester(manager: manager, openSettings: { openedSettings += 1 })
+        let result = await requester.request(always: false)
+        #expect(result == status)
+        #expect(openedSettings == 1)
+        #expect(manager.authorizationRequests == 0)
+    }
+
+    @Test(arguments: [CLAuthorizationStatus.notDetermined, .authorizedAlways])
+    func `enabling Location requests only an undetermined grant`(_ status: CLAuthorizationStatus) async {
+        let manager = FixtureLocationManager(status: status)
+        var openedSettings = 0
+        let requester = LocationPermissionRequester(manager: manager, openSettings: { openedSettings += 1 })
+        #expect(await requester.request(always: false) == .authorizedAlways)
+        #expect(manager.authorizationRequests == (status == .notDetermined ? 1 : 0))
+        #expect(openedSettings == 0)
+    }
+
     @Test
     func `concurrent request waiters all resume`() async {
         let coordinator = LocationPermissionRequestCoordinator()
@@ -34,7 +55,7 @@ struct PermissionManagerLocationTests {
         let enqueued = AsyncTestGate()
         var isCurrent = true
         let request = Task { @MainActor in
-            await coordinator.wait(isCurrent: { isCurrent }) { _ in enqueued.open() }
+            await coordinator.wait(isCurrent: { isCurrent }, onEnqueue: { _ in enqueued.open() })
         }
         await enqueued.wait()
         #expect(coordinator.hasCurrentRequests)
@@ -55,5 +76,28 @@ struct PermissionManagerLocationTests {
         #expect(!PermissionManager.isLocationAuthorized(status: .notDetermined, requireAlways: false))
         #expect(!PermissionManager.isLocationAuthorized(status: .denied, requireAlways: false))
         #expect(!PermissionManager.isLocationAuthorized(status: .restricted, requireAlways: false))
+    }
+}
+
+private final class FixtureLocationManager: CLLocationManager {
+    private let status: CLAuthorizationStatus
+    private(set) var authorizationRequests = 0
+
+    init(status: CLAuthorizationStatus) {
+        self.status = status
+        super.init()
+    }
+
+    override var authorizationStatus: CLAuthorizationStatus {
+        self.status
+    }
+
+    override func requestWhenInUseAuthorization() {
+        self.authorizationRequests += 1
+    }
+
+    override func requestLocation() {
+        let result = self.status == .notDetermined ? CLAuthorizationStatus.authorizedAlways : self.status
+        self.delegate?.locationManager?(self, didChangeAuthorization: result)
     }
 }
