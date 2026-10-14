@@ -126,7 +126,11 @@ struct BundledRecoveryCompositionTests {
             let window = try await self.updateWindow()
             _ = try await AppKitTestSupport.waitForAccessibilityElement(
                 in: window, description: "paused recovery", matching: { elements in
-                    elements.first { AppKitTestSupport.accessibilityName(of: $0)?.contains("Resume OpenClaw") == true }
+                    elements.first {
+                        let value: Any? = $0.accessibilityValue?()
+                        return $0.accessibilityRole?() == .staticText &&
+                            (value as? String)?.contains("Resume OpenClaw") == true
+                    }
                 })
             #expect(PostAppUpdateReceiptStore.pending(currentVersion: version)?.coreUpdatePending == true)
 
@@ -134,7 +138,11 @@ struct BundledRecoveryCompositionTests {
             PostUpdateController.shared.retry()
             _ = try await AppKitTestSupport.waitForAccessibilityElement(
                 in: window, description: "newer-schema Doctor diagnostic", matching: { elements in
-                    elements.first { AppKitTestSupport.accessibilityName(of: $0)?.contains("2147483646") == true }
+                    elements.first {
+                        let value: Any? = $0.accessibilityValue?()
+                        return $0.accessibilityRole?() == .staticText &&
+                            (value as? String)?.contains("2147483646") == true
+                    }
                 })
             _ = try await AppKitTestSupport.waitForAccessibilityElement(
                 in: window, description: "required newer-schema refusal", matching: { elements in
