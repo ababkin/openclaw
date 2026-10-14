@@ -1,15 +1,18 @@
 import { logWarn } from "../../logger.js";
 import { createDeferredCore } from "../../shared/deferred.js";
+import { WORKER_ADMISSION_DEADLINE_MS } from "../../worker/worker-connection-contract.js";
+import { WorkerNodeLostError } from "../../worker/worker-node-loss.js";
 import { reportPlacementTransition } from "./placement-record.js";
 import type {
   WorkerSessionPlacementRecord,
   WorkerSessionPlacementStore,
   WorkerSessionTurnClaim,
 } from "./placement-store.js";
+import { matchesWorkerPlacementTarget } from "./placement-target.js";
 import { findPendingWorkerWorkspaceResult } from "./placement-workspace-result.js";
 import type { WorkerEnvironmentService } from "./service.js";
 import { boundedWorkerError } from "./worker-error.js";
-import { releaseClaimIfOwned } from "./worker-turn-admission.js";
+import { releaseClaimIfOwned, type WorkerTurnAdmissionOptions } from "./worker-turn-admission.js";
 import { AcceptedWorkspacePublicationIndeterminateError } from "./workspace-accepted-publication.js";
 
 export type WorkerTurnEnvironmentService = Pick<
@@ -34,7 +37,7 @@ export type WorkerTurnEnvironmentService = Pick<
 
 export type ActiveWorkerPlacement = Extract<WorkerSessionPlacementRecord, { state: "active" }>;
 export type WorkerTurnPartialIdentity = WorkerSessionTurnClaim &
-  Pick<ActiveWorkerPlacement, "sessionKey" | "agentId">;
+  Pick<ActiveWorkerPlacement, "sessionKey" | "agentId"> & { missingToolResultText?: string };
 
 export class WorkerTurnExecutionError extends Error {}
 
@@ -47,18 +50,68 @@ export class WorkerWorkspaceReconciliationError extends Error {
 const TERMINAL_WORKER_CLEANUP_GRACE_MS = 30_000;
 
 export async function prepareWorkerTurnFailure(
-  placements: WorkerSessionPlacementStore,
+  options: WorkerTurnAdmissionOptions & { environments: WorkerTurnEnvironmentService },
+  placement: ActiveWorkerPlacement,
   claim: WorkerTurnPartialIdentity,
+  error: unknown,
+  assertCurrent: () => void,
+  abortSignal: AbortSignal | undefined,
   persistAbandonedPartial?: (claim: WorkerTurnPartialIdentity) => Promise<void>,
 ) {
+  const { placements } = options;
+  const nodeLoss = error instanceof WorkerNodeLostError ? error : undefined;
+  let partialWritten = false;
   try {
     if (persistAbandonedPartial && placements.validateTurnClaim(claim)) {
-      await persistAbandonedPartial(claim);
+      await persistAbandonedPartial({ ...claim, missingToolResultText: nodeLoss?.message });
+      partialWritten = true;
     }
-  } catch (error) {
-    logWarn(`Cloud worker partial reply could not be saved: ${boundedWorkerError(error)}`);
+  } catch (persistenceError) {
+    logWarn(
+      `Cloud worker partial reply could not be saved: ${boundedWorkerError(persistenceError)}`,
+    );
   }
-  return findPendingWorkerWorkspaceResult(placements, claim);
+  const pendingWorkspaceResult = await findPendingWorkerWorkspaceResult(placements, claim);
+  if (pendingWorkspaceResult) {
+    if (claim.owner.kind === "local") {
+      // The Gateway-owned run is already terminal. Atomically record the
+      // reconciliation failure before teardown so reclaim cannot see live work.
+      await placements.failWorkspaceResultAndReleaseTurn(pendingWorkspaceResult, error);
+    } else {
+      // A recovery sweep owns the still-live worker claim. Teardown here
+      // could discard the terminal event's durably fenced file results.
+      await placements.handoffWorkspaceResultRecovery(claim);
+    }
+    if (!nodeLoss || !partialWritten) {
+      await options.reconcileActivePlacement(placement.environmentId);
+      throw error;
+    }
+  }
+  if (nodeLoss && partialWritten) {
+    try {
+      if (!pendingWorkspaceResult) {
+        assertCurrent();
+        await options.environments.stopTunnel(placement.environmentId, placement.activeOwnerEpoch);
+        await placements.closeWorkerTurnToolState(claim);
+        await placements.retainInterruptedTurnWorkspace(claim, assertCurrent);
+      }
+      const signal = AbortSignal.any([
+        AbortSignal.timeout(WORKER_ADMISSION_DEADLINE_MS),
+        ...(abortSignal ? [abortSignal] : []),
+      ]);
+      await options.waitForAdmissionNode({ placement, signal, assertCurrent });
+      await options.reconcileActivePlacement(placement.environmentId);
+      const current = await placements.getAsync(placement.sessionId);
+      assertCurrent();
+      nodeLoss.canContinue =
+        matchesWorkerPlacementTarget(current, placement) && current?.turnClaim === null;
+    } catch (recoveryError) {
+      nodeLoss.cause ??= recoveryError;
+    }
+    if (nodeLoss.canContinue || pendingWorkspaceResult) {
+      throw error;
+    }
+  }
 }
 
 export async function failHandedOffTurn(params: {
