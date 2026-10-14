@@ -36,10 +36,24 @@ describe.runIf("__vitest_browser__" in globalThis)("sidebar agent menu scrolling
       const list = row.parentElement!.getBoundingClientRect();
       return bounds.top >= list.top - 1 && bounds.bottom <= list.bottom + 1;
     };
+    const waitForMenuShown = () =>
+      new Promise<void>((resolve) => {
+        const onShown = (event: Event) => {
+          if (event.target !== sidebar.querySelector(".sidebar-agent-menu")) {
+            return;
+          }
+          sidebar.removeEventListener("overlay-after-show", onShown, true);
+          resolve();
+        };
+        sidebar.addEventListener("overlay-after-show", onShown, true);
+        onTestFinished(() => sidebar.removeEventListener("overlay-after-show", onShown, true));
+      });
 
+    const clickMenuShown = waitForMenuShown();
     trigger.click();
     await expect.poll(() => activeRow()?.dataset.value).toBe("agent:agent-39");
     await expect.poll(() => document.activeElement).toBe(activeRow());
+    await clickMenuShown;
     await expect.poll(selectedAgentIsVisible).toBe(true);
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => sidebar.querySelector(".sidebar-agent-menu")).toBeNull();
@@ -47,8 +61,10 @@ describe.runIf("__vitest_browser__" in globalThis)("sidebar agent menu scrolling
     const input = document.createElement("input");
     document.body.append(input);
     input.focus();
+    const hoverMenuShown = waitForMenuShown();
     await page.elementLocator(trigger).hover();
     await expect.poll(() => activeRow()?.dataset.value).toBe("agent:agent-39");
+    await hoverMenuShown;
     await expect.poll(selectedAgentIsVisible).toBe(true);
     expect(document.activeElement).toBe(input);
   });
