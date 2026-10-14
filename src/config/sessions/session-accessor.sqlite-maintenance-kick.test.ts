@@ -14,6 +14,7 @@ import {
   markGatewayRestartDraining,
   resetGatewayWorkAdmission,
 } from "../../process/gateway-work-admission.js";
+import { beginSessionWorkAdmission } from "../../sessions/session-lifecycle-admission.js";
 import { recordAgentDatabaseAdmissions } from "../../state/agent-database-admission.js";
 import * as agentDatabase from "../../state/openclaw-agent-db.js";
 import {
@@ -34,7 +35,11 @@ import { importSqliteSessionRowsBatch } from "./session-accessor.sqlite-import.j
 import * as ageFacts from "./session-accessor.sqlite-maintenance-age.js";
 import { kickSessionEntryMaintenanceAfterWrite } from "./session-accessor.sqlite-maintenance-kick.js";
 import * as maintenanceKick from "./session-accessor.sqlite-maintenance-kick.js";
-import { observeSessionMaintenancePlanningWorker } from "./session-accessor.sqlite-maintenance.test-support.js";
+import {
+  observeSessionMaintenancePlanningWorker,
+  observeNextPeriodicMaintenance,
+  countPlanningPasses,
+} from "./session-accessor.sqlite-maintenance.test-support.js";
 import * as reclamationRun from "./session-accessor.sqlite-reclamation-run.js";
 import { registerSessionMaintenancePreserveKeysProvider } from "./store-maintenance-preserve.js";
 import {
@@ -135,21 +140,6 @@ function createStore(pruneAfterMs = 1_000, key = sessionKey, { workerMaintenance
   };
 }
 
-function observeNextPeriodicMaintenance(delayMs = ageFacts.SESSION_ENTRY_MAINTENANCE_INTERVAL_MS) {
-  // Install after createStore opens the handles and registers their WAL timers.
-  const scheduled = createDeferred();
-  const setTimer = globalThis.setTimeout;
-  const observer = vi.spyOn(globalThis, "setTimeout").mockImplementation((...args) => {
-    const timer = setTimer(...args);
-    if (args[1] === delayMs) {
-      scheduled.resolve();
-    }
-    return timer;
-  });
-  return (signal: AbortSignal) =>
-    withinTest(scheduled.promise, signal).finally(() => observer.mockRestore());
-}
-
 it("joins automatic worker maintenance while Doctor drainage waits on other work", async () => {
   const { request } = createStore(1_000, sessionKey, { workerMaintenance: true });
   const maintenance = createOpenClawDatabaseMaintenanceScope({
@@ -176,15 +166,6 @@ it("joins automatic worker maintenance while Doctor drainage waits on other work
     observation.restore();
   }
 });
-
-function countPlanningPasses() {
-  return new Set(
-    vi
-      .mocked(reclamationRun.runSqliteSessionReclamation)
-      .mock.calls.map(([{ plan }]) => plan)
-      .filter((plan) => plan.kind === "maintenance-plan"),
-  ).size;
-}
 
 it("revisits write-protected capacity victims after their captured keys are released", async ({
   signal,
@@ -213,6 +194,45 @@ it("revisits write-protected capacity victims after their captured keys are rele
   await withinTest(archived, signal);
   expect(loadSessionEntry({ storePath, sessionKey })?.archiveReason).toBe("active-session-cap");
   expect(loadSessionEntry({ storePath, sessionKey: protectedKey })?.archivedAt).toBeUndefined();
+});
+
+it("resumes idle capacity maintenance when acquired work releases without another write", async ({
+  signal,
+}) => {
+  const { request, scope, storePath, archived, planned, updatedAt } = createStore(
+    86_400_000,
+    sessionKey,
+    { workerMaintenance: true },
+  );
+  request.maintenanceConfig.maxEntries = 1;
+  const protectedKey = "agent:main:admission-locked-capacity-owner";
+  vi.useRealTimers();
+  runOpenClawAgentWriteTransaction((database) => {
+    writeSessionEntry(database, protectedKey, {
+      sessionId: "admission-locked-capacity-owner",
+      updatedAt,
+      modelSelectionLocked: true,
+    });
+  }, scope);
+  const admission = await beginSessionWorkAdmission({
+    scope: storePath,
+    identities: [sessionKey, "age-kick"],
+  });
+  try {
+    const settled = observeNextPeriodicMaintenance(
+      (delay) => delay >= ageFacts.SESSION_ENTRY_MAINTENANCE_INTERVAL_MS / 2,
+    );
+    kickSessionEntryMaintenanceAfterWrite(request);
+    await withinTest(planned, signal);
+    await settled(signal);
+    expect(loadSessionEntry({ storePath, sessionKey })?.archivedAt).toBeUndefined();
+    admission.release();
+    await withinTest(archived, signal);
+    expect(loadSessionEntry({ storePath, sessionKey })?.archiveReason).toBe("active-session-cap");
+    expect(loadSessionEntry({ storePath, sessionKey: protectedKey })?.archivedAt).toBeUndefined();
+  } finally {
+    admission.release();
+  }
 });
 
 it("resumes idle protected-store maintenance when delivery settlement releases its last claim", async ({

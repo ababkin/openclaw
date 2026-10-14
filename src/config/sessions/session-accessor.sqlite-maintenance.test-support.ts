@@ -1,6 +1,7 @@
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { onTestFinished, vi } from "vitest";
+import { createDeferred, withinTest } from "../../../test/helpers/promise.js";
 import type {
   SqliteWorkerOperations,
   SqliteWorkerStore,
@@ -15,6 +16,8 @@ import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import type { OpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { replaceSessionEntrySync } from "./session-accessor.js";
 import type { SqliteSessionReclamationPlan } from "./session-accessor.sqlite-lifecycle-types.js";
+import { SESSION_ENTRY_MAINTENANCE_INTERVAL_MS } from "./session-accessor.sqlite-maintenance-age.js";
+import * as reclamationRun from "./session-accessor.sqlite-reclamation-run.js";
 import { resolveSessionReclamationDatabaseOptions } from "./session-accessor.sqlite-reclamation.js";
 import { resolveMaintenanceConfigFromInput } from "./store-maintenance.js";
 
@@ -211,4 +214,33 @@ export function observeSessionMaintenanceChanges(databasePath: string, ...sessio
   });
   onTestFinished(unsubscribe);
   return completed.promise;
+}
+
+export function observeNextPeriodicMaintenance(
+  delayMs: number | ((delay: number) => boolean) = SESSION_ENTRY_MAINTENANCE_INTERVAL_MS,
+) {
+  // Install after createStore opens the handles and registers their WAL timers.
+  const scheduled = createDeferred();
+  const setTimer = globalThis.setTimeout;
+  const observer = vi.spyOn(globalThis, "setTimeout").mockImplementation((...args) => {
+    const timer = setTimer(...args);
+    if (
+      typeof args[1] === "number" &&
+      (typeof delayMs === "number" ? args[1] === delayMs : delayMs(args[1]))
+    ) {
+      scheduled.resolve();
+    }
+    return timer;
+  });
+  return (signal: AbortSignal) =>
+    withinTest(scheduled.promise, signal).finally(() => observer.mockRestore());
+}
+
+export function countPlanningPasses() {
+  return new Set(
+    vi
+      .mocked(reclamationRun.runSqliteSessionReclamation)
+      .mock.calls.map(([{ plan }]) => plan)
+      .filter((plan) => plan.kind === "maintenance-plan"),
+  ).size;
 }

@@ -387,6 +387,8 @@ sessions, runtime providers, or recent activity does not suppress planning on
 ordinary writes; age deadlines and the periodic recheck still resume idle cleanup.
 While entry pressure still requires cleanup, capacity maintenance revisits entries
 once temporary write protection ends, without requiring another entry write.
+Releasing acquired session work also wakes idle capacity maintenance; overlapping
+work keeps the session protected until its final admission releases.
 If writes invalidate an automatic maintenance plan, its replacement waits for
 the scheduled retry delay (one second, then two seconds). Further writes coalesce
 into that retry without postponing it indefinitely. Three

@@ -372,3 +372,19 @@ export function readSessionEntryMaintenanceNextAgeAt(
   const fact = readSessionEntryMaintenanceAgeFact(database.db, maintenance);
   return fact ? Math.min(fact.next.at, fact.recheckAt) : Date.now();
 }
+
+export function capturePendingSessionMaintenanceAgeChanges(
+  pending: Map<string, SessionEntryMaintenanceAgeChange>,
+) {
+  const changes = [...pending.values()];
+  return {
+    changes,
+    acknowledge() {
+      for (const change of changes) {
+        if (pending.get(change.sessionKey) === change) {
+          pending.delete(change.sessionKey);
+        }
+      }
+    },
+  };
+}
