@@ -5,37 +5,8 @@ import {
   withProviderAcceptanceObserver,
 } from "openclaw/plugin-sdk/provider-transport-runtime";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createMantleAnthropicStreamFn } from "./mantle-anthropic.runtime.js";
-
-const { createClientMock, streamMock, resetStreamMock } = vi.hoisted(() => ({
-  createClientMock: vi.fn(),
-  streamMock: vi.fn(),
-  resetStreamMock: { run: () => {} },
-}));
-
-vi.mock("@anthropic-ai/sdk", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@anthropic-ai/sdk")>();
-  createClientMock.mockImplementation(function (
-    options: ConstructorParameters<typeof actual.default>[0],
-  ) {
-    return new actual.default(options);
-  });
-  return { ...actual, default: createClientMock };
-});
-
-vi.mock("openclaw/plugin-sdk/llm", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/llm")>();
-  resetStreamMock.run = () => {
-    streamMock.mockReset().mockImplementation(actual.stream);
-  };
-  return { ...actual, stream: streamMock };
-});
-
-beforeEach(() => {
-  createClientMock.mockClear();
-  resetStreamMock.run();
-});
 
 function createTestModel(overrides: Partial<Model> = {}): Model {
   return {
@@ -56,6 +27,13 @@ function createTestModel(overrides: Partial<Model> = {}): Model {
   } as Model;
 }
 
+function createTestDeps() {
+  return {
+    createClient: vi.fn((options: unknown) => ({ options }) as never),
+    stream: vi.fn(),
+  };
+}
+
 const requireRecord = createRequireRecord("record", "expected-label-object-capitalized");
 
 function mockCallArg(mock: { mock: { calls: unknown[][] } }, index = 0, argIndex = 0): unknown {
@@ -66,24 +44,29 @@ function mockCallArg(mock: { mock: { calls: unknown[][] } }, index = 0, argIndex
   return call[argIndex];
 }
 
-function expectFirstStreamCall(model: Model, context: unknown) {
-  expect(mockCallArg(streamMock, 0, 0)).toBe(model);
-  expect(mockCallArg(streamMock, 0, 1)).toBe(context);
+function expectFirstStreamCall(
+  deps: ReturnType<typeof createTestDeps>,
+  model: Model,
+  context: unknown,
+) {
+  expect(mockCallArg(deps.stream, 0, 0)).toBe(model);
+  expect(mockCallArg(deps.stream, 0, 1)).toBe(context);
 }
 
-function firstStreamOptions(): Record<string, unknown> {
-  return requireRecord(mockCallArg(streamMock, 0, 2), "stream options");
+function firstStreamOptions(deps: ReturnType<typeof createTestDeps>): Record<string, unknown> {
+  return requireRecord(mockCallArg(deps.stream, 0, 2), "stream options");
 }
 
 function captureStreamOptions(model: Model, options: SimpleStreamOptions = {}) {
   const context = { messages: [] };
-  streamMock.mockReturnValue({ kind: "anthropic-stream" });
-  void createMantleAnthropicStreamFn()(model, context, {
+  const deps = createTestDeps();
+  deps.stream.mockReturnValue({ kind: "anthropic-stream" } as never);
+  void createMantleAnthropicStreamFn(deps)(model, context, {
     apiKey: "bedrock-bearer-token",
     ...options,
   });
-  expectFirstStreamCall(model, context);
-  return firstStreamOptions();
+  expectFirstStreamCall(deps, model, context);
+  return firstStreamOptions(deps);
 }
 
 function createReasoningModel(id: string, name: string, overrides: Partial<Model> = {}) {
@@ -139,7 +122,8 @@ describe("createMantleAnthropicStreamFn", () => {
     const stream = { kind: "anthropic-stream" };
     const model = createTestModel();
     const context = { messages: [] };
-    streamMock.mockReturnValue(stream);
+    const deps = createTestDeps();
+    deps.stream.mockReturnValue(stream as never);
     const acceptanceObserver = vi.fn();
     const onResponse = vi.fn();
     const options = withProviderAcceptanceObserver(
@@ -153,10 +137,10 @@ describe("createMantleAnthropicStreamFn", () => {
       acceptanceObserver,
     );
 
-    const result = createMantleAnthropicStreamFn()(model, context, options);
+    const result = createMantleAnthropicStreamFn(deps)(model, context, options);
 
     expect(result).toBe(stream);
-    const clientOptions = requireRecord(mockCallArg(createClientMock), "client options");
+    const clientOptions = requireRecord(mockCallArg(deps.createClient), "client options");
     expect(clientOptions.apiKey).toBeNull();
     expect(clientOptions.authToken).toBe("bedrock-bearer-token");
     expect(clientOptions.baseURL).toBe("https://bedrock-mantle.us-east-1.api.aws/anthropic");
@@ -169,10 +153,12 @@ describe("createMantleAnthropicStreamFn", () => {
     );
     expect(clientOptions.fetch).toEqual(expect.any(Function));
 
-    expectFirstStreamCall(model, context);
-    const streamOptions = firstStreamOptions();
+    expectFirstStreamCall(deps, model, context);
+    const streamOptions = firstStreamOptions(deps);
     const client = requireRecord(streamOptions.client, "stream client");
-    expect(client.authToken).toBe("bedrock-bearer-token");
+    expect(requireRecord(client.options, "stream client options").authToken).toBe(
+      "bedrock-bearer-token",
+    );
     expect(streamOptions.thinkingEnabled).toBe(false);
     expect(streamOptions.onResponse).toBe(onResponse);
     await notifyProviderStreamOpened({ options: streamOptions, cancelStream: vi.fn() });

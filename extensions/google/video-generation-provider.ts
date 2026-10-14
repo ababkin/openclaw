@@ -507,11 +507,10 @@ export function buildGoogleVideoGenerationProvider(): VideoGenerationProvider {
             operation: () => client.operations.getVideosOperation({ operation: sdkOperation }),
           });
         }
+        if (sdkOperation.error) {
+          throw new Error(JSON.stringify(sdkOperation.error));
+        }
         operation = sdkOperation;
-      }
-      const operationError = (operation as { error?: unknown }).error;
-      if (operationError) {
-        throw new Error(JSON.stringify(operationError));
       }
       let generatedVideos = extractGeneratedVideos(operation);
       if (generatedVideos.length === 0 && !hasReferenceInputs && !usedRestFallback) {

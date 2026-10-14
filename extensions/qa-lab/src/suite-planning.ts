@@ -436,7 +436,13 @@ async function mapQaSuiteWithConcurrency<T, U>(
   if (hasError) {
     throw firstError;
   }
-  return results.filter((result) => result !== undefined);
+  const completed: U[] = [];
+  for (const result of results) {
+    if (result !== undefined) {
+      completed.push(result as U);
+    }
+  }
+  return completed;
 }
 
 async function resolveQaSuiteOutputDir(repoRoot: string, outputDir?: string) {

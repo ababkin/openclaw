@@ -1742,7 +1742,7 @@ describe("Claude session catalog", () => {
     expect((await listLocalClaudeSessionPage({}, home)).sessions[0]?.name).toBe("Bravo");
   });
 
-  it("bounds cold metadata I/O and discovers remaining sessions from a warm cache", async () => {
+  it("keeps the metadata byte frontier in serial directory order under parallel stats", async () => {
     const home = await createHome();
     const projectDir = projectFile(home);
     await fs.mkdir(projectDir, { recursive: true });
@@ -1793,9 +1793,7 @@ describe("Claude session catalog", () => {
     await expectClaudeCatalogEventually(
       home,
       (page) => {
-        expect(page.sessions.map((session) => session.threadId).toSorted()).toEqual(
-          serialNames.toSorted(),
-        );
+        expect(page.sessions.map((session) => session.threadId).toSorted()).toEqual(expected);
         expect(readdir).toHaveBeenCalledWith(projectDir);
       },
       { limit: 100 },
@@ -1839,7 +1837,7 @@ describe("Claude session catalog", () => {
     });
   });
 
-  it("omits a deleted transcript after a complete scan", async () => {
+  it("evicts a deleted transcript after a complete scan", async () => {
     const home = await createHome();
     const watches = createClaudeCatalogWatchDriver(home);
     const projectDir = projectFile(home);

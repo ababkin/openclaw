@@ -1,6 +1,7 @@
 package ai.openclaw.app.ui
 
 import android.app.Activity
+import android.os.IBinder
 import android.view.View
 import androidx.compose.foundation.layout.recalculateWindowInsets
 import androidx.compose.runtime.Composable
@@ -8,14 +9,17 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.LayoutModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.node.invalidatePlacement
 import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -40,6 +44,9 @@ internal class FoldAwareSheetState(
     private set
   private var features = WindowDisplayFeatureSnapshot()
   private var destination: View? = null
+  private var token: IBinder? = null
+  private var display: Int? = null
+  private var nativeEstablished = false
   private var host: LayoutCoordinates? = null
   private var hostSize = IntSize.Zero
   private var direction = LayoutDirection.Ltr
@@ -74,11 +81,12 @@ internal class FoldAwareSheetState(
   }
 
   fun bind(view: View) {
-    destination = view
+    if (destination != null && destination !== view) reject()
+    if (!revoked) destination = view
   }
 
   fun publishMapping(mapping: OverlayWindowGeometry?) {
-    if (mapping == null && placedPane != null) reject()
+    if (mapping == null && nativeEstablished) reject()
     refresh()
     if (publishedMapping != mapping || resolvedPane != placedPane) invalidate()
     publishedMapping = mapping
@@ -88,14 +96,22 @@ internal class FoldAwareSheetState(
 
   fun refresh(): Boolean {
     if (revoked) return false
-    if (!features.ready || !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+    if (!canOpen()) {
       reject()
       return false
     }
     val view = destination ?: return false
     val mapping = sampleOverlayWindowGeometry(activity, activityView, view)
     if (mapping == null) {
-      if (placedPane != null) reject()
+      if (nativeEstablished) reject()
+      return false
+    }
+    if (!nativeEstablished) {
+      token = view.windowToken ?: return false
+      display = view.display?.displayId ?: return false
+      nativeEstablished = true
+    } else if (view.windowToken != token || view.display?.displayId != display) {
+      reject()
       return false
     }
     val coordinates = host ?: return false
@@ -146,7 +162,7 @@ internal class FoldAwareSheetState(
     hostSize = size
     this.direction = direction
     refresh()
-    if (revoked) return null
+    if (revoked || !nativeEstablished) return null
     placedPane = resolvedPane
     return placedPane?.takeIf { it.width > 0 && it.height > 0 }
   }
@@ -196,11 +212,13 @@ private class SheetHostNode(
   val state: FoldAwareSheetState,
   var direction: LayoutDirection,
 ) : Modifier.Node(),
-  LayoutModifierNode {
+  LayoutModifierNode,
+  DrawModifierNode {
   override fun onAttach() {
     state.invalidate = {
       if (isAttached) {
         invalidatePlacement()
+        invalidateDraw()
       }
     }
   }
@@ -221,5 +239,9 @@ private class SheetHostNode(
         measurable.measure(Constraints.fixed(pane.width, pane.height)).place(pane.left, pane.top)
       }
     }
+  }
+
+  override fun ContentDrawScope.draw() {
+    if (state.refresh()) drawContent()
   }
 }

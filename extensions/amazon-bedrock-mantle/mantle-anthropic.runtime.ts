@@ -22,6 +22,8 @@ import {
 } from "openclaw/plugin-sdk/provider-transport-runtime";
 
 const MANTLE_ANTHROPIC_BETA = "fine-grained-tool-streaming-2025-05-14";
+type AnthropicOptions = ConstructorParameters<typeof Anthropic>[0];
+type MantleAnthropicStream = typeof stream;
 
 /** Resolve the Anthropic-compatible Mantle base URL from a provider base URL. */
 function resolveMantleAnthropicBaseUrl(baseUrl: string): string {
@@ -114,10 +116,15 @@ function buildMantleAnthropicBaseOptions(
 }
 
 /** Create the Mantle Anthropic Messages stream function. */
-export function createMantleAnthropicStreamFn(): StreamFn {
+export function createMantleAnthropicStreamFn(deps?: {
+  createClient?: (options: AnthropicOptions) => Anthropic;
+  stream?: MantleAnthropicStream;
+}): StreamFn {
   return (model, context, options) => {
     const apiKey = options?.apiKey ?? "";
-    const client = new Anthropic({
+    const createClient = deps?.createClient ?? ((clientOptions) => new Anthropic(clientOptions));
+    const streamFn = deps?.stream ?? stream;
+    const client = createClient({
       apiKey: null,
       authToken: apiKey,
       baseURL: resolveMantleAnthropicBaseUrl(model.baseUrl),
@@ -137,7 +144,7 @@ export function createMantleAnthropicStreamFn(): StreamFn {
     const sonnet5 = resolveClaudeSonnet5ModelIdentity(model) !== undefined;
     const mythos5 = resolveClaudeMythos5ModelIdentity(model) !== undefined;
     if (!reasoning || reasoning === "off") {
-      return stream(model as Model<"anthropic-messages">, context, {
+      return streamFn(model as Model<"anthropic-messages">, context, {
         ...base,
         client,
         thinkingEnabled: false,
@@ -145,7 +152,7 @@ export function createMantleAnthropicStreamFn(): StreamFn {
     }
 
     if (opus5 || sonnet5 || mythos5) {
-      return stream(model as Model<"anthropic-messages">, context, {
+      return streamFn(model as Model<"anthropic-messages">, context, {
         ...base,
         client,
         thinkingEnabled: true,
@@ -165,7 +172,7 @@ export function createMantleAnthropicStreamFn(): StreamFn {
     });
     const adaptiveThinking = isClaudeMythosPreviewModel(model);
     const thinkingEnabled = adaptiveThinking || adjusted.thinkingBudget >= 1024;
-    return stream(model as Model<"anthropic-messages">, context, {
+    return streamFn(model as Model<"anthropic-messages">, context, {
       ...base,
       client,
       maxTokens: adjusted.maxTokens,

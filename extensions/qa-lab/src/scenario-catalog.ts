@@ -255,7 +255,12 @@ const qaFlowThrowActionSchema = z.object({
   ]),
 });
 
+const qaFlowIfShapeBase: Record<string, z.ZodTypeAny> = {
+  expr: z.string().trim().min(1),
+  else: z.array(z.unknown()).optional(),
+};
 const qaFlowThenKey = String.fromCharCode(116, 104, 101, 110);
+qaFlowIfShapeBase[qaFlowThenKey] = z.array(z.unknown()).min(1);
 
 const qaFlowActionSchema: z.ZodType = z.lazy(() =>
   z.union([
@@ -265,11 +270,9 @@ const qaFlowActionSchema: z.ZodType = z.lazy(() =>
     qaFlowAssertActionSchema,
     qaFlowThrowActionSchema,
     z.object({
-      if: z.object({
-        expr: z.string().trim().min(1),
-        else: z.array(z.unknown()).optional(),
-        [qaFlowThenKey]: z.array(z.unknown()).min(1),
-      }),
+      if: z
+        .object(qaFlowIfShapeBase)
+        .transform((value) => value as { expr: string; then: unknown[]; else?: unknown[] }),
     }),
     z.object({
       forEach: z.object({
