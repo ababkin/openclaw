@@ -1,3 +1,4 @@
+import { createComponent } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import { mountSolid } from "../test-helpers/mount-solid.ts";
 import "../test-helpers/load-styles.ts";
@@ -17,20 +18,6 @@ describe.skipIf(!hasBrowserLayout)("sidebar glyph geometry", () => {
     async (kind) => {
       const host = document.createElement("div");
       document.body.append(host);
-      const Content = () =>
-        kind === "page" ? (
-          <span class="session-glyph__icon">
-            <Icon name="clock" />
-          </span>
-        ) : (
-          <SessionOwnerChip
-            owner={{ type: "human", id: "ada", label: "Ada" }}
-            participants={
-              kind === "group" ? [{ identity: { type: "profile", id: "bob" }, label: "Bob" }] : []
-            }
-            participantCount={kind === "group" ? 1 : 0}
-          />
-        );
       let view: ReturnType<typeof mountSolid> | undefined;
       async function show(running: boolean, queued = false) {
         view?.unmount();
@@ -46,7 +33,23 @@ describe.skipIf(!hasBrowserLayout)("sidebar glyph geometry", () => {
               }}
             >
               <SessionGlyph
-                content={<Content />}
+                content={
+                  kind === "page" ? (
+                    <span class="session-glyph__icon">
+                      <Icon name="clock" />
+                    </span>
+                  ) : (
+                    <SessionOwnerChip
+                      owner={{ type: "human", id: "ada", label: "Ada" }}
+                      participants={
+                        kind === "group"
+                          ? [{ identity: { type: "profile", id: "bob" }, label: "Bob" }]
+                          : []
+                      }
+                      participantCount={kind === "group" ? 1 : 0}
+                    />
+                  )
+                }
                 running={running}
                 queued={queued}
                 circular={kind !== "page"}
@@ -134,7 +137,7 @@ describe.skipIf(!hasBrowserLayout)("sidebar glyph geometry", () => {
   it("preserves the compact indicator for rows with no artwork", () => {
     const host = document.createElement("div");
     document.body.append(host);
-    mountSolid(() => <SessionGlyph content={undefined} running={true} />, {
+    mountSolid(() => createComponent(SessionGlyph, { content: undefined, running: true }), {
       container: host,
     });
     const ring = host.querySelector(".session-glyph__ring");
