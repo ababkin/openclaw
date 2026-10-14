@@ -207,68 +207,24 @@ export async function prepareManagedServiceRecoveryClockPreload(
   commandArgv: string[],
   env: NodeJS.ProcessEnv,
 ): Promise<NodeJS.ProcessEnv> {
-  const preloadPath = path.join(params.root, "recovery-clock-preload.cjs");
-  const deadlinePath = path.join(params.root, "recovery-deadline.json");
-  // Expire the real helper callback only after its native descendant exists.
-  // Other commands keep native clocks; the watchdog also uses the real cleanup callback.
-  const source = `if (process.argv[1] === ${JSON.stringify(params.scriptPath)}) {
-    const fs = require("node:fs");
-    const children = require("node:child_process");
-    const spawn = children.spawn;
-    const setTimeout = global.setTimeout;
-    const clearTimeout = global.clearTimeout;
-    let recovery;
-    let captured = false;
-    children.spawn = (command, args, options) => {
-      const child = spawn(command, args, options);
-      if (command === ${JSON.stringify(commandArgv[0])} &&
-          (args.at(-1) === ${JSON.stringify(JSON.stringify(commandArgv))} ||
-           JSON.stringify(args.slice(-${commandArgv.length - 1})) === ${JSON.stringify(JSON.stringify(commandArgv.slice(1)))})) {
-        recovery = child;
-        child.once("close", () => { recovery = undefined; });
-      }
-      return child;
-    };
-    global.setTimeout = (callback, delay, ...args) => {
-      if (!recovery || delay !== ${params.timeoutMs}) return setTimeout(callback, delay, ...args);
-      if (captured) throw new Error("duplicate recovery deadline");
-      captured = true;
-      const child = recovery;
-      const deadline = { requestedMs: delay };
-      const save = () => fs.writeFileSync(${JSON.stringify(deadlinePath)}, JSON.stringify(deadline));
-      let buffered = "";
-      let expired = false;
-      const expire = () => {
-        if (expired) return;
-        expired = true;
-        clearTimeout(timer);
-        child.stdout.removeListener("data", onData);
-        try { save(); } finally { callback.apply(timer, args); }
-      };
-      const onData = (chunk) => {
-        buffered = (buffered + chunk.toString()).slice(-1024);
-        if (!buffered.includes(${JSON.stringify(`${recoveryReadyMarker}\n`)})) return;
-        try {
-          const pid = JSON.parse(fs.readFileSync(${JSON.stringify(params.statePath)}, "utf8")).recoveryDescendantPid;
-          if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("missing recovery descendant PID");
-          process.kill(pid, 0);
-          deadline.descendantPid = pid;
-        } catch {
-          // Still join native cleanup; the readiness assertion reports this fixture failure.
-        }
-        expire();
-      };
-      const timer = setTimeout(expire, 30_000);
-      child.stdout.on("data", onData);
-      child.once("close", () => {
-        clearTimeout(timer);
-        child.stdout.removeListener("data", onData);
-      });
-      return timer;
-    };
-  }`;
-  await fs.writeFile(preloadPath, source);
-  return { ...env, NODE_OPTIONS: `${env.NODE_OPTIONS ?? ""} --require ${preloadPath}`.trim() };
+  const configPath = path.join(params.root, "recovery-clock.json");
+  await fs.writeFile(
+    configPath,
+    JSON.stringify({
+      scriptPath: params.scriptPath,
+      statePath: params.statePath,
+      timeoutMs: params.timeoutMs,
+      commandArgv,
+      readyMarker: recoveryReadyMarker,
+      deadlinePath: path.join(params.root, "recovery-deadline.json"),
+    }),
+  );
+  const preloadUrl = new URL(
+    "../../test/fixtures/managed-service-recovery-clock.mjs",
+    import.meta.url,
+  );
+  preloadUrl.searchParams.set("config", configPath);
+  return { ...env, NODE_OPTIONS: `${env.NODE_OPTIONS ?? ""} --import=${preloadUrl.href}`.trim() };
 }
 
 export async function waitForHandoffResponse(
