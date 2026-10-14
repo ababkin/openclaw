@@ -136,7 +136,10 @@ async function mountCard(
     { wrapper: createSolidApplicationContextProvider(context).wrapper },
   );
   await waitForFast(() => expect(harness.ensureLoaded).toHaveBeenCalled());
-  const card = expectDefined(container.querySelector<HTMLElement>("openclaw-mcp-servers-card"));
+  const card = expectDefined(
+    container.querySelector<HTMLElement>("openclaw-mcp-servers-card"),
+    "MCP servers card",
+  );
   return { card, context, harness };
 }
 
