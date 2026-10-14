@@ -614,6 +614,7 @@ export function createSessionCapability(
       primarySnapshotApplied,
       affectsPrimary: eventObservation.affectsPrimary,
       affectedLists: eventObservation.lists,
+      immediate: event.event === "sessions.changed" && eventReason === "create",
     });
     notifyEvent?.(event);
   });
