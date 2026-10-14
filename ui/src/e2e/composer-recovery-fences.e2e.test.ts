@@ -1,6 +1,5 @@
 import { expect, it } from "vitest";
 import type { ChatQueueItem, ChatReplyTarget } from "../lib/chat/chat-types.ts";
-import type { ChatOutboxRecoveryElement } from "../pages/chat/chat-outbox-recovery.tsx";
 import { selectChatLayoutAction } from "../test-helpers/chat-layout-menu.ts";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import {
@@ -416,7 +415,7 @@ suite.define(() => {
         const restore = notice.getByRole("button", { name: "Restore", exact: true });
         if (change === "incognito") {
           await notice.evaluate(async (element) => {
-            const component = element as ChatOutboxRecoveryElement;
+            const component = element as HTMLElementTagNameMap["openclaw-chat-outbox-recovery"];
             await component.updateComplete;
             await component.updateComplete;
           });
@@ -437,7 +436,7 @@ suite.define(() => {
             host.selectedChatSessionIncognito = false;
             const component = document.querySelector(
               "#recovery-fence-fixture",
-            ) as ChatOutboxRecoveryElement;
+            ) as HTMLElementTagNameMap["openclaw-chat-outbox-recovery"];
             component.identity = "non-incognito-review-owner";
           });
         }
