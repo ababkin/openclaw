@@ -106,6 +106,9 @@ describe("inline approval card", () => {
       expiresAtMs: 61_000,
     } satisfies ExecApprovalRequest;
 
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    onTestFinished(() => nowSpy.mockRestore());
+
     const container = renderChatView({
       inlineApproval,
       approvalCanGrant: false,
@@ -113,8 +116,6 @@ describe("inline approval card", () => {
       onApprovalDecision,
     });
 
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000);
-    onTestFinished(() => nowSpy.mockRestore());
     await connectApprovalCard(container);
     const card = container.querySelector(".chat-inline-approval .exec-approval-card");
     const inlineSurface = requireElement(container, ".chat-inline-approval", "inline approval");
