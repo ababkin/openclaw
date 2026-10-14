@@ -49,6 +49,7 @@ function resetGatewayState(): void {
 function cronJob(params: {
   id: string;
   startedAtMs: number;
+  atMs?: number;
   enabled?: boolean;
   nextRunAtMs: number;
   recurring?: boolean;
@@ -62,7 +63,7 @@ function cronJob(params: {
     updatedAtMs: params.startedAtMs - 1,
     schedule: params.recurring
       ? { kind: "every", everyMs: 60_000, anchorMs: params.startedAtMs }
-      : { kind: "at", at: new Date(params.startedAtMs).toISOString() },
+      : { kind: "at", at: new Date(params.atMs ?? params.startedAtMs).toISOString() },
     sessionTarget: "main",
     wakeMode: "next-heartbeat",
     payload: { kind: "systemEvent", text: "Gateway startup recovery proof" },
@@ -110,12 +111,18 @@ describe("Gateway cron startup recovery", () => {
     const historyRetryAtMs = Date.now() + 60_000;
     const jobs = [
       cronJob({
-        id: "persisted-retry-without-history",
+        id: "finalized-without-next-run",
         startedAtMs,
         nextRunAtMs: persistedRetryAtMs,
       }),
-      cronJob({ id: "persisted-retry", startedAtMs, nextRunAtMs: persistedRetryAtMs }),
+      cronJob({ id: "history-over-stale-retry", startedAtMs, nextRunAtMs: persistedRetryAtMs }),
       cronJob({ id: "history-retry", startedAtMs, nextRunAtMs: startedAtMs }),
+      cronJob({
+        id: "persisted-replacement",
+        startedAtMs,
+        atMs: persistedRetryAtMs,
+        nextRunAtMs: persistedRetryAtMs,
+      }),
       cronJob({
         id: "persisted-disable",
         startedAtMs,
@@ -130,9 +137,10 @@ describe("Gateway cron startup recovery", () => {
       }),
     ];
     const historyNextRunAtMs = new Map<string, number | undefined>([
-      ["persisted-retry-without-history", undefined],
-      ["persisted-retry", historyRetryAtMs],
+      ["finalized-without-next-run", undefined],
+      ["history-over-stale-retry", historyRetryAtMs],
       ["history-retry", historyRetryAtMs],
+      ["persisted-replacement", historyRetryAtMs],
       ["persisted-disable", historyRetryAtMs],
       ["recurring-history", historyRetryAtMs],
     ]);
@@ -216,17 +224,19 @@ describe("Gateway cron startup recovery", () => {
       );
       const recovered = new Map(response.jobs.map((job) => [job.id, job] as const));
 
-      expect(recovered.get("persisted-retry-without-history")).toMatchObject({
+      expect(recovered.get("finalized-without-next-run")?.enabled).toBe(false);
+      expect(recovered.get("finalized-without-next-run")?.state.nextRunAtMs).toBeUndefined();
+      expect(recovered.get("history-over-stale-retry")).toMatchObject({
         enabled: true,
-        state: { nextRunAtMs: persistedRetryAtMs },
-      });
-      expect(recovered.get("persisted-retry")).toMatchObject({
-        enabled: true,
-        state: { nextRunAtMs: persistedRetryAtMs },
+        state: { nextRunAtMs: historyRetryAtMs },
       });
       expect(recovered.get("history-retry")).toMatchObject({
         enabled: true,
         state: { nextRunAtMs: historyRetryAtMs },
+      });
+      expect(recovered.get("persisted-replacement")).toMatchObject({
+        enabled: true,
+        state: { nextRunAtMs: persistedRetryAtMs },
       });
       expect(recovered.get("persisted-disable")?.enabled).toBe(false);
       expect(recovered.get("persisted-disable")?.state.nextRunAtMs).toBeUndefined();
