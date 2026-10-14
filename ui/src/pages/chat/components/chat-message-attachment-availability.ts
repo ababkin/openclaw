@@ -153,7 +153,7 @@ export function resolveAssistantAttachmentAvailability(
       if (!res.ok) {
         return createUnavailableAssistantAttachment(
           t("chat.attachments.unavailable"),
-          resource.retryAttempted,
+          resource.retryAttempted || res.status === 403 || res.status === 404,
         );
       }
       const payload = (await res.json()) as {
@@ -260,6 +260,31 @@ export function retryAssistantAttachmentAvailability(
   }
   notifyChatMediaResourceSubscribers(resource);
   options.onRequestUpdate?.();
+}
+
+export function reportAssistantImageFailure(
+  source: string,
+  options: ImageRenderOptions = {},
+): void {
+  if (!isLocalAssistantAttachmentSource(source)) {
+    return;
+  }
+  const resource = observeAssistantAttachment(source, options);
+  // A late image event must not replace a newer metadata denial.
+  if (resource.value?.status !== "available") {
+    return;
+  }
+  resetAssistantAttachmentAvailability(resource);
+  // Native IMG errors hide the HTTP status. Never replay a possibly denied or
+  // missing byte request automatically; explicit Retry must recheck admission.
+  resource.retryAttempted = true;
+  setAssistantAttachmentAvailability(
+    resource,
+    createUnavailableAssistantAttachment(t("chat.imageLightbox.loadFailed"), true, {
+      unconfirmed: true,
+    }),
+  );
+  notifyChatMediaResourceSubscribers(resource);
 }
 
 function resetAssistantAttachmentAvailability(
