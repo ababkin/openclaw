@@ -239,13 +239,6 @@ describeControlUiE2e("Control UI plugin lifecycle", () => {
           : configSnapshot(false),
       );
       await gateway.setMethodResponse("plugins.list", initialInventory);
-      // Background reads must see the same outage as the post-removal refresh.
-      await gateway.setMethodResponse(
-        "config.get",
-        withWarnings
-          ? { __mockError: { code: "UNAVAILABLE", message: refreshError } }
-          : configSnapshot(false),
-      );
       await gateway.resolveDeferred("plugins.uninstall", {
         ok: true,
         pluginId: "calendar-plus",
