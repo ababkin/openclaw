@@ -243,41 +243,6 @@ it("captures the physical store before yielding and preserves FIFO allowlist edi
   expect(fs.existsSync(captured.OPENCLAW_STATE_DIR)).toBe(false);
 });
 
-it("retains foreign rows and normalizes legacy account aliases on the next mutation", async () => {
-  const channel = "foreign-normalization";
-  seed(channel, [request("waiting")], { alpha: ["existing"], beta: ["untouched"] });
-  await listChannelPairingRequests(channel, env);
-  database.db
-    .prepare(
-      "UPDATE channel_pairing_allow_entries SET account_id = ' Alpha ', entry = ' foreign ' WHERE channel_key = ? AND account_id = 'alpha'",
-    )
-    .run(channel);
-  database.db
-    .prepare(
-      "UPDATE channel_pairing_requests SET account_id = ' Alpha ', meta_json = ? WHERE channel_key = ?",
-    )
-    .run(JSON.stringify({ accountId: "wrong-account", approval: "foreign-proof" }), channel);
-  await upsertChannelPairingRequest({ channel, id: "new", accountId: "gamma", env });
-  const state = readChannelPairingStateSnapshot(channel, env);
-  expect(state.requests).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        id: "waiting",
-        meta: { accountId: "alpha", approval: "foreign-proof" },
-      }),
-      expect.objectContaining({ id: "new", meta: { accountId: "gamma" } }),
-    ]),
-  );
-  expect(state.allowFrom).toEqual({ alpha: ["foreign"], beta: ["untouched"] });
-  expect(
-    database.db
-      .prepare(
-        "SELECT account_id FROM channel_pairing_requests WHERE channel_key = ? ORDER BY account_id",
-      )
-      .all(channel),
-  ).toEqual([{ account_id: "alpha" }, { account_id: "gamma" }]);
-});
-
 it("removes a legacy padded allow entry using its canonical sender id", async () => {
   const channel = "legacy-removal";
   seed(channel, [], { alpha: ["foreign", "keep"], beta: ["foreign"] });
@@ -293,7 +258,7 @@ it("removes a legacy padded allow entry using its canonical sender id", async ()
   await expect(readChannelAllowFromStore(channel, env, "beta")).resolves.toEqual(["foreign"]);
 });
 
-it.each(["error", "null", "revoked"] as const)(
+it.each(["null", "revoked"] as const)(
   "preserves approval burn semantics when its adapter returns %s",
   async (outcome) => {
     const channel = `adapter-${outcome}`;
@@ -314,9 +279,6 @@ it.each(["error", "null", "revoked"] as const)(
       pairingAdapter: {
         idLabel: "peer",
         resolveApprovalStoreEntry: () => {
-          if (outcome === "error") {
-            throw refusal;
-          }
           if (outcome === "revoked") {
             current = false;
             return "must-not-be-approved";

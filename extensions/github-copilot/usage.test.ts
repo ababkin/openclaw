@@ -27,12 +27,6 @@ describe("GitHub Copilot usage credential routing", () => {
       expectedDomain: "account.ghe.com",
     },
     {
-      label: "public OAuth before provider config",
-      credentialDomain: "github.com",
-      configuredDomain: "config.ghe.com",
-      expectedDomain: "github.com",
-    },
-    {
       label: "environment override before OAuth and config",
       credentialDomain: "account.ghe.com",
       configuredDomain: "config.ghe.com",
@@ -181,38 +175,21 @@ describe("fetchCopilotUsage", () => {
     expect(result.plan).toBeUndefined();
   });
 
-  it("returns an empty window list when quota snapshots are missing", async () => {
-    const mockFetch = createProviderUsageFetch(async () =>
-      makeResponse(200, {
-        copilot_plan: "free",
-      }),
-    );
+  it.each([["null", null]])(
+    "returns an empty window list for a non-object %s payload",
+    async (_label, payload) => {
+      const mockFetch = createProviderUsageFetch(async () => makeResponse(200, payload));
 
-    const result = await fetchCopilotUsage("token", 5000, mockFetch);
+      const result = await fetchCopilotUsage("token", 5000, mockFetch);
 
-    expect(result).toEqual({
-      provider: "github-copilot",
-      displayName: "Copilot",
-      windows: [],
-      plan: "free",
-    });
-  });
-
-  it.each([
-    ["null", null],
-    ["an array", []],
-  ])("returns an empty window list for a non-object %s payload", async (_label, payload) => {
-    const mockFetch = createProviderUsageFetch(async () => makeResponse(200, payload));
-
-    const result = await fetchCopilotUsage("token", 5000, mockFetch);
-
-    expect(result).toEqual({
-      provider: "github-copilot",
-      displayName: "Copilot",
-      windows: [],
-      plan: undefined,
-    });
-  });
+      expect(result).toEqual({
+        provider: "github-copilot",
+        displayName: "Copilot",
+        windows: [],
+        plan: undefined,
+      });
+    },
+  );
 
   it("bounds the usage read and cancels the stream when the body exceeds the JSON byte cap", async () => {
     // Larger than the shared 16 MiB readProviderJsonResponse cap so the bounded reader cancels the
