@@ -25,6 +25,22 @@ Memory Core's private shadow-index owner uses
 `memory-core-host-engine-storage` facade before draining its private queue and
 closing the connection.
 
+Memory Core's publication worker uses `stageMemoryIndexSchemaExtension(db)` from
+the private `memory-core-host-engine-schema` facade before replacing derived
+indexes in a managed transaction. Successful commit republishes the already
+admitted memory table contracts, so a clean restart can reuse their seal without
+repeating schema setup. Full-index publication supplies the replacement's FTS
+availability; a missing required index leaves admission invalid for repair.
+Rollback publishes no replacement receipt, and an unclean restart still performs
+normal integrity and schema admission.
+
+Memory Core's `MemorySearchManager.statusAsync({ includeCounts: false })` returns
+in-process provider and index facts without database diagnostics. Query callers
+can pass the same option to `readMemorySearchManagerStatus`; file, chunk, source,
+storage, and embedding-cache counts are omitted by the built-in manager.
+Calling `statusAsync()` retains the full diagnostic result, and legacy managers
+keep the existing synchronous fallback.
+
 ## State, config, and system namespaces
 
 <AccordionGroup>
@@ -218,6 +234,32 @@ closing the connection.
 
   </Accordion>
 </AccordionGroup>
+
+## Prepared keyed-state effect guards
+
+`preparePluginStateRead(store, key)` from
+`openclaw/plugin-sdk/plugin-state-runtime` prepares a current read for stores
+created by the host. It returns `{ read, release }`; call `read()` immediately
+before a tool, disclosure, or external send, and call `release()` in `finally`.
+Preparation uses the state worker when the owner has no published row or absence.
+The final read uses memory, follows committed replacements and deletions, and
+honors expiry and runtime retirement.
+
+Queued mutations deny these reads before commit. Known rollback preserves the
+prior facts; compound binding cleanup publishes deletion or compensation before
+releasing denial. An unknown outcome keeps effect guards denied for that database
+identity until the Gateway restarts. Ordinary descriptive reads remain available.
+
+Custom store adapters return `undefined` because the host cannot observe their
+writers. Keep the adapter's authoritative reader for that case. A failed prepared
+read is a denial, never permission to fall back to an older value. Preparation
+and its receipt do not replace account, session-incarnation, or other independent
+security checks.
+
+Retained synchronous effect guards can call `assertPluginStateReadAvailable(store)`
+with the host-created async store before their native read. This checks the same
+pending, unknown, and runtime state without depending on a cached row. Use it at
+the effect boundary, not inside a writer's own admission callback.
 
 ## Synchronous keyed store migration
 
