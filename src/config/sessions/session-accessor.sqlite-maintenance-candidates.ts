@@ -145,7 +145,7 @@ export function readSessionMaintenanceCapCandidates(params: {
   );
   const selected: Array<{
     key: string;
-    keyBytes: Buffer;
+    keyBytes: Uint8Array;
     entry: SessionEntry;
     activityAt: number;
   }> = [];
@@ -166,7 +166,6 @@ export function readSessionMaintenanceCapCandidates(params: {
       .orderBy("updated_at", "asc")
       .orderBy("session_key", "desc"),
   )) {
-    const keyBytes = Buffer.from(row.key_bytes);
     const worst = selected.at(-1);
     // Activity is at least updatedAt; equal lower bounds follow descending keys.
     // Once neither can improve the worst selected row, the indexed scan is done.
@@ -174,7 +173,7 @@ export function readSessionMaintenanceCapCandidates(params: {
       selected.length === params.overflow &&
       worst &&
       (row.updated_at > worst.activityAt ||
-        (row.updated_at === worst.activityAt && Buffer.compare(keyBytes, worst.keyBytes) <= 0))
+        (row.updated_at === worst.activityAt && Buffer.compare(row.key_bytes, worst.keyBytes) <= 0))
     ) {
       break;
     }
@@ -203,7 +202,7 @@ export function readSessionMaintenanceCapCandidates(params: {
     }
     const candidate = {
       key: row.session_key,
-      keyBytes,
+      keyBytes: row.key_bytes,
       entry,
       activityAt: getSessionMaintenanceActivityAt(entry),
     };
