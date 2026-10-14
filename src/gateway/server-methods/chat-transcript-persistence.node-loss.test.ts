@@ -7,6 +7,7 @@ import {
   loadTranscriptEvents,
   replaceSessionEntry,
 } from "../../config/sessions/session-accessor.js";
+import { runWithSessionTranscriptReadFence } from "../../config/sessions/session-transcript-read-fence.js";
 import { useSessionStoreTempDirs } from "../../test-utils/session-state-cleanup.js";
 import {
   captureAbortedPartial,
@@ -35,6 +36,10 @@ function appendTranscriptMessage(params: {
     },
   );
   expect(result.ok).toBe(true);
+  if (!result.ok || !result.value?.anchor) {
+    throw new Error("Expected committed transcript anchor");
+  }
+  return result.value.anchor;
 }
 
 it.each(["", "Partial reply"])(
@@ -48,6 +53,12 @@ it.each(["", "Partial reply"])(
       { agentId: "main", storePath, sessionKey: "main" },
       { sessionId, updatedAt: 1, activeWriterRunId: runId },
     );
+    const originalInput = appendTranscriptMessage({
+      sessionId,
+      storePath,
+      idempotencyKey: "original-request",
+      message: { role: "user", content: "run the command", timestamp: 0 },
+    });
     appendTranscriptMessage({
       sessionId,
       storePath,
@@ -95,11 +106,15 @@ it.each(["", "Partial reply"])(
     const missingToolResultText =
       "The node disconnected; outcome unknown. Verify state before retrying.";
     const persist = () =>
-      persistAbortedPartials({
-        context: { logGateway: { warn: () => {} } },
-        snapshots: [snapshot],
-        missingToolResultText,
-      });
+      runWithSessionTranscriptReadFence(
+        { ...originalInput, logicalTurnId: runId, role: "user" },
+        () =>
+          persistAbortedPartials({
+            context: { logGateway: { warn: () => {} } },
+            snapshots: [snapshot],
+            missingToolResultText,
+          }),
+      );
     await persist();
     await persist();
     const lines = await loadTranscriptEvents(scope);
