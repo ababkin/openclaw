@@ -1,6 +1,7 @@
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { getPluginExecutionFrame } from "./plugin-instance-invocation.js";
 import { getPluginRegistryState } from "./runtime-state.js";
+import { recordPluginSdkDeprecationUsage } from "./sdk-deprecation-usage.js";
 
 // Source imports and SDK bundles share the budget, including across plugin reloads.
 const warned = resolveGlobalSingleton(
@@ -31,6 +32,14 @@ export function warnPluginSdkDeprecation(params: {
       ? candidate
       : undefined;
   const key = JSON.stringify([pluginId ?? null, params.family]);
+  if (pluginId) {
+    recordPluginSdkDeprecationUsage(
+      pluginId,
+      `${params.family}:${params.method}`,
+      params.method,
+      params.replacement,
+    );
+  }
   if (warned.has(key)) {
     return;
   }

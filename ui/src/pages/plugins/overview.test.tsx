@@ -2,7 +2,11 @@ import type { JSX } from "@solidjs/web";
 import { flush } from "solid-js";
 import { afterEach, expect, it } from "vitest";
 import { mountSolid, cleanupSolid } from "../../test-helpers/mount-solid.ts";
-import { renderPluginMetadata, renderPluginPublisher } from "./overview.tsx";
+import {
+  renderPluginCompatibilityNotices,
+  renderPluginMetadata,
+  renderPluginPublisher,
+} from "./overview.tsx";
 import { createDiscoveryDetail } from "./plugins-page.test-support.ts";
 import { renderPluginSecurityAudit } from "./security-audit.tsx";
 
@@ -14,6 +18,48 @@ function render(content: () => JSX.Element, container: HTMLDivElement) {
   flush();
 }
 afterEach(cleanupSolid);
+
+it("omits compatibility notices for plugins without observed deprecated API usage", () => {
+  const container = document.createElement("div");
+  render(() => renderPluginCompatibilityNotices(undefined), container);
+  expect(container.children).toHaveLength(0);
+});
+
+it("shows neutral compatibility copy and adds API replacements only in plugin details", () => {
+  const notices = [
+    {
+      code: "deprecated-sdk-api" as const,
+      severity: "info" as const,
+      message:
+        "Uses OpenClaw APIs that retire on Dec 31, 2026. It keeps working until then; check for a plugin update.",
+      removalDate: "2026-12-31",
+      migrationGuideUrl: "https://docs.openclaw.ai/plugins/sdk-migration",
+      apis: [
+        {
+          id: "channel-pairing-sync-allowlist",
+          displayName: "readChannelAllowFromStoreSync",
+          replacement: "Await readChannelAllowFromStore instead.",
+        },
+      ],
+    },
+  ];
+  const container = document.createElement("div");
+  render(() => renderPluginCompatibilityNotices(notices), container);
+  const message = container.querySelector(".plugins-row-message--info");
+  expect(message?.textContent).toContain(notices[0].message);
+  expect(message?.getAttribute("role")).toBe("status");
+  expect(
+    container.querySelector(".oc-banner-warning, .oc-banner-error, svg, [role=alert]"),
+  ).toBeNull();
+  expect(container.querySelector("a")?.textContent).toBe("Details");
+  expect(container.querySelector("a")?.getAttribute("href")).toBe(notices[0].migrationGuideUrl);
+  expect(container.textContent).not.toContain("readChannelAllowFromStoreSync");
+  render(() => renderPluginCompatibilityNotices(notices, true), container);
+  expect(container.querySelector("dt")?.textContent).toBe("readChannelAllowFromStoreSync");
+  expect(container.querySelector("dd")?.textContent).toBe(
+    "Await readChannelAllowFromStore instead.",
+  );
+});
 
 it.each([
   "Martian-Engineering/lossless-claw",
