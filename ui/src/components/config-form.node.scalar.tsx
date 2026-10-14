@@ -123,16 +123,6 @@ function resolveNumericInputState(
     : { message: t("configForm.invalidNumber") };
 }
 
-function applyNumericInputState(
-  target: HTMLInputElement,
-  state: NumericInputState,
-  commit: (candidate: unknown) => unknown,
-): void {
-  if (setControlValidity(target, state.message)) {
-    commit(state.parsed);
-  }
-}
-
 export function TextInput(props: {
   params: ConfigNodeRenderParams & { inputType: "text" | "number" };
 }): JSX.Element {
@@ -412,11 +402,10 @@ function ScalarInput(props: {
           return;
         }
         if (props.inputType === "number") {
-          applyNumericInputState(
-            target,
-            resolveNumericInputState(target, props.params),
-            (candidate) => commitScalarValue(target, candidate),
-          );
+          const next = resolveNumericInputState(target, props.params);
+          if (setControlValidity(target, next.message)) {
+            commitScalarValue(target, next.parsed);
+          }
           return;
         }
         const next = textInputState(target.value, beginScalarEdit(target, state().initialBranch));
