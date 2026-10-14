@@ -472,8 +472,11 @@ describe("SQLite historical session disk budget", () => {
       sessionKey: "agent:main:canonical-pressure",
       updatedAt: 2,
     });
+    await closeOpenClawAgentDatabaseByPathAsync(database().path);
     settlePhysicalUsage();
     const before = await measureSessionPhysicalDiskUsage(storePath);
+    expect(before.databaseWalBytes).toBe(0);
+    expect(database().db.prepare("PRAGMA freelist_count").get()).toEqual({ freelist_count: 0 });
 
     const cachedDatabase = database();
     const rm = fs.promises.rm.bind(fs.promises);
