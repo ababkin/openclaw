@@ -35,12 +35,15 @@ it("keeps a session pin read-only while switching its text and binary files", ()
     ],
     revisions: [{ revision: "a".repeat(64), createdAt: 1 }],
   };
+  const container = document.body.appendChild(document.createElement("div"));
   const close = vi.fn();
   const [file, setFile] = createSignal("SKILL.md");
-  const { container, unmount } = mountSolid(() => (
-    <LibraryPinRead read={read} file={file()} onFile={setFile} onClose={close} />
-  ));
+  const view = mountSolid(
+    () => <LibraryPinRead read={read} file={file()} onFile={setFile} onClose={close} />,
+    { container },
+  );
   try {
+    flush();
     const select = container.querySelector("select")!;
     const text = container.querySelector("textarea")!;
     expect(text.readOnly).toBe(true);
@@ -60,6 +63,7 @@ it("keeps a session pin read-only while switching its text and binary files", ()
     container.querySelector<HTMLButtonElement>(".exec-approval-header button")!.click();
     expect(close).toHaveBeenCalledOnce();
   } finally {
-    unmount();
+    view.unmount();
+    container.remove();
   }
 });

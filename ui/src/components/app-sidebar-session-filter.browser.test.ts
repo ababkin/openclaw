@@ -144,15 +144,13 @@ describe.runIf("__vitest_browser__" in globalThis)("sidebar session filter popov
       await userEvent.keyboard("{Escape}");
       await expect.element(search).toHaveValue("");
       await expect.poll(() => ownerOptions(sidebar)).toHaveLength(4);
-      const ownerHidden = new Promise<void>((resolve) => {
-        search
-          .element()
-          .closest(".picker-select__menu")!
-          .addEventListener("overlay-after-hide", () => resolve(), { once: true });
+      const ownersSurface = search.element().closest(".picker-select__menu")!;
+      const ownersHidden = new Promise<void>((resolve) => {
+        ownersSurface.addEventListener("overlay-after-hide", () => resolve(), { once: true });
       });
       await userEvent.keyboard("{Escape}");
+      await ownersHidden;
       await expect.element(owners).toHaveFocus();
-      await ownerHidden;
       await expect.poll(() => occlusion).toEqual([false, true, false]);
       await trigger.click();
       await expect.poll(() => occlusion).toEqual([false, true, false, true]);
