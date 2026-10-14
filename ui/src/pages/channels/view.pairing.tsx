@@ -2,7 +2,7 @@ import { createMemo, For, Show } from "solid-js";
 // DM sender access request queue shared by the Channels hub and detail panels.
 import type { ChannelsPairingAccount, ChannelsPairingRequest } from "../../api/types.ts";
 import { renderChannelPicker } from "../../components/channel-picker.ts";
-import { renderPicker } from "../../components/select-picker.ts";
+import { Picker } from "../../components/select-picker.ts";
 import "../../components/modal-dialog.ts";
 import {
   SettingsEmpty,
@@ -57,43 +57,42 @@ function renderFilters(props: ChannelsProps) {
       </label>
       <label>
         <span>{t("channels.pairing.accountFilter")}</span>
-        <LitContent
-          render={() =>
-            renderPicker({
-              label: t("channels.pairing.accountFilter"),
-              value: props.pairingAccountFilter ?? "",
-              options: [
-                { value: "", label: t("channels.pairing.allAccounts") },
-                ...accountsForChannel().map((account) => ({
-                  value: account.accountId,
-                  label: accountName(account),
-                })),
-              ],
-              disabled: !props.pairingChannelFilter,
-              onChange: (value) =>
-                props.onPairingFilterChange(props.pairingChannelFilter, value || null),
-            })
-          }
+        <Picker
+          params={{
+            label: t("channels.pairing.accountFilter"),
+            value: props.pairingAccountFilter ?? "",
+            options: [
+              { value: "", label: t("channels.pairing.allAccounts") },
+              ...accountsForChannel().map((account) => ({
+                value: account.accountId,
+                label: accountName(account),
+              })),
+            ],
+            disabled: !props.pairingChannelFilter,
+            onChange: (value) =>
+              props.onPairingFilterChange(props.pairingChannelFilter, value || null),
+          }}
         />
       </label>
     </div>
   );
 }
 
-function renderRequest(request: ChannelsPairingRequest, props: ChannelsProps) {
-  const metadata = Object.entries(request.metadata ?? {});
+function PairingRequest(props: ChannelsProps & { request: ChannelsPairingRequest }) {
+  const request = () => props.request;
+  const metadata = createMemo(() => Object.entries(request().metadata ?? {}));
   return (
     <div class="settings-row settings-row--stacked channels-pairing-request">
       <div class="channels-pairing-request__main">
         <div class="settings-row__text">
-          <span class="settings-row__title">{request.senderId}</span>
+          <span class="settings-row__title">{request().senderId}</span>
           <span class="settings-row__desc">
-            {request.senderLabel} · {request.channelLabel} · {accountName(request)} (
-            {request.accountId})
+            {request().senderLabel} · {request().channelLabel} · {accountName(request())} (
+            {request().accountId})
           </span>
           <span class="settings-row__desc">
-            {t("channels.pairing.requested", { ago: formatRequestTime(request.createdAt) })} ·
-            {t("channels.pairing.expires", { ago: formatRequestTime(request.expiresAt) })}
+            {t("channels.pairing.requested", { ago: formatRequestTime(request().createdAt) })} ·
+            {t("channels.pairing.expires", { ago: formatRequestTime(request().expiresAt) })}
           </span>
         </div>
         <div class="settings-row__control channels-pairing-request__actions">
@@ -104,16 +103,19 @@ function renderRequest(request: ChannelsPairingRequest, props: ChannelsProps) {
                 class={action === "approve" ? "btn btn--sm primary" : "btn btn--sm"}
                 disabled={Boolean(props.channels.pairingBusyRequestId) || !props.canManagePairing}
                 aria-label={t(`channels.pairing.${action}Aria`, {
-                  sender: request.senderId,
-                  channel: request.channelLabel,
-                  account: accountName(request),
+                  sender: request().senderId,
+                  channel: request().channelLabel,
+                  account: accountName(request()),
                 })}
                 onClick={() =>
-                  (action === "approve" ? props.onPairingApprove : props.onPairingDismiss)(request)
+                  (action === "approve" ? props.onPairingApprove : props.onPairingDismiss)(
+                    request(),
+                  )
                 }
               >
                 {t(
-                  action === "approve" && props.channels.pairingBusyRequestId === request.requestId
+                  action === "approve" &&
+                    props.channels.pairingBusyRequestId === request().requestId
                     ? "common.loading"
                     : `channels.pairing.${action}`,
                 )}
@@ -122,11 +124,11 @@ function renderRequest(request: ChannelsPairingRequest, props: ChannelsProps) {
           </For>
         </div>
       </div>
-      {metadata.length > 0 ? (
+      {metadata().length > 0 ? (
         <details class="channels-pairing-request__details">
           <summary>{t("channels.pairing.senderDetails")}</summary>
           <dl class="settings-kv">
-            <For each={metadata}>
+            <For each={metadata()}>
               {(entry) => (
                 <>
                   <dt>{entry[0]}</dt>
@@ -172,22 +174,20 @@ export function renderChannelPairingQueue(props: ChannelsProps) {
           </div>
         ) : (
           <>
-            <For
-              each={
-                [
-                  [props.channels.pairingError, "alert", "danger"],
-                  [props.pairingNotice, "status", "ok"],
-                ] as const
-              }
-            >
-              {([label, role, kind]) =>
-                label ? (
-                  <div class="settings-row channels-pairing-feedback" role={role}>
-                    <SettingsStatus kind={kind} label={label} />
-                  </div>
-                ) : undefined
-              }
-            </For>
+            <Show when={props.channels.pairingError}>
+              {(label) => (
+                <div class="settings-row channels-pairing-feedback" role="alert">
+                  <SettingsStatus kind="danger" label={label()} />
+                </div>
+              )}
+            </Show>
+            <Show when={props.pairingNotice}>
+              {(label) => (
+                <div class="settings-row channels-pairing-feedback" role="status">
+                  <SettingsStatus kind="ok" label={label()} />
+                </div>
+              )}
+            </Show>
             {snapshot() ? renderFilters(props) : undefined}
             {props.channels.pairingLoading && !snapshot() ? (
               <SettingsLoadingSkeleton rows={2} />
@@ -202,7 +202,9 @@ export function renderChannelPairingQueue(props: ChannelsProps) {
                 }
               />
             ) : (
-              requests().map((request) => renderRequest(request, props))
+              <For each={requests()} keyed={(request) => request.requestId}>
+                {(request) => <PairingRequest {...props} request={request()} />}
+              </For>
             )}
             <Show when={snapshot()}>
               {(current) => (
