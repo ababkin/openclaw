@@ -77,6 +77,7 @@ export function resolveIncompleteTurnPayloadText(params: {
   attempt: IncompleteTurnAttempt;
 }): string | null {
   const assistantState = classifyAssistantTurn(params);
+  const textToolCallAttempt = params.attempt.textToolCallAttempt === true;
   const assistant = assistantState.assistant;
   const completionAttempt = {
     ...params.attempt,
@@ -106,7 +107,10 @@ export function resolveIncompleteTurnPayloadText(params: {
     Boolean(assistant && hasOnlyAssistantReasoningContent(assistant));
 
   if (
-    (params.payloadCount !== 0 && !incompleteTerminalAssistant && !thinkingOnlyTerminal) ||
+    (params.payloadCount !== 0 &&
+      !incompleteTerminalAssistant &&
+      !thinkingOnlyTerminal &&
+      !textToolCallAttempt) ||
     (params.aborted && params.externalAbort) ||
     params.timedOut ||
     params.attempt.clientToolCalls ||
@@ -135,6 +139,10 @@ export function resolveIncompleteTurnPayloadText(params: {
         params.attempt.itemLifecycle.completedCount < params.attempt.itemLifecycle.startedCount))
   ) {
     return null;
+  }
+
+  if (textToolCallAttempt) {
+    return "⚠️ The model wrote a tool call as text instead of calling the tool. No tool ran for that call. Please try again or use a model with native tool calling.";
   }
 
   const stopReason = assistant?.stopReason;

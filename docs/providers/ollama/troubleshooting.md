@@ -124,6 +124,12 @@ sidebarTitle: "Troubleshooting"
     If a small local model still fails on tool schemas, set
     `compat.supportsTools: false` on that model entry and retest.
 
+    When a reply consists of a structured tool-call attempt naming an available
+    tool, OpenClaw asks the model once to call the tool natively. If it repeats
+    the text call, the turn fails visibly instead of reporting success. Text
+    calls are never executed by this guard; ordinary code examples remain text.
+    The original reply and corrective continuation remain in session history.
+
   </Accordion>
 
   <Accordion title="Repeated tool errors stop the turn">

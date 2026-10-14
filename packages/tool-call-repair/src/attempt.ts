@@ -1,5 +1,7 @@
+import { safeParseJson } from "@openclaw/normalization-core/json-coercion";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString as readTrimmedString } from "@openclaw/normalization-core/string-coerce";
+import { parseStandalonePlainTextToolCallBlocks } from "./payload.js";
 
 type ToolCallShapedTextDetection = {
   kind: "json_tool_call" | "xml_tool_call" | "bracketed_tool_call" | "react_action";
@@ -213,4 +215,52 @@ export function detectToolCallShapedText(text: string): ToolCallShapedTextDetect
     detectJsonToolCall(trimmed) ??
     detectReactAction(trimmed)
   );
+}
+
+function isStructuredCall(text: string, names: ReadonlySet<string>): boolean {
+  const detection = classifyJsonValue(safeParseJson(text));
+  if (detection?.toolName && names.has(detection.toolName)) {
+    return true;
+  }
+  if (parseStandalonePlainTextToolCallBlocks(text, { allowedToolNames: names })) {
+    return true;
+  }
+  const invoke =
+    /^<(invoke|tool_call|function_call)\s+name=["']([^"']+)["']\s*>[\s\S]*<\/\1>$/i.exec(text);
+  if (invoke && names.has(invoke[2] ?? "")) {
+    return true;
+  }
+  const wrapper = /^<(tool_call|function_call)>\s*([\s\S]*?)\s*<\/\1>$/i.exec(text);
+  const wrapped = wrapper ? classifyJsonValue(safeParseJson(wrapper[2] ?? "")) : null;
+  return Boolean(wrapped?.toolName && names.has(wrapped.toolName));
+}
+
+/** Detects a non-executable near miss; this must never be used to dispatch a tool. */
+export function isPlainTextToolCallAttempt(text: string, names: ReadonlySet<string>): boolean {
+  const trimmed = text.trim();
+  if (!names.size || !trimmed || trimmed.length > 256_000) {
+    return false;
+  }
+  if (isStructuredCall(trimmed, names)) {
+    return true;
+  }
+  const fence =
+    /^([\s\S]*?)(?:^|\n)[ \t]*(```|~~~)(?:json|xml)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*\2$/i.exec(
+      trimmed,
+    );
+  const trailing = /^([^\n]+)\n\s*((?:<|\{|\[)[\s\S]*)$/i.exec(trimmed);
+  const prefix = (fence?.[1] ?? trailing?.[1] ?? "").trim();
+  const body = fence?.[3] ?? trailing?.[2];
+  // Only a short action announcement may precede the block. Explanations and
+  // examples remain literal, even when their sample names a registered tool.
+  if (
+    !body ||
+    (prefix &&
+      (prefix.length > 160 ||
+        /\b(example|sample|illustrat\w*|demonstrat\w*)\b/i.test(prefix) ||
+        !/^(?:I(?:'ll| will| am going to)\b|Let me\b|\w+$)/i.test(prefix)))
+  ) {
+    return false;
+  }
+  return isStructuredCall(body.trim(), names);
 }

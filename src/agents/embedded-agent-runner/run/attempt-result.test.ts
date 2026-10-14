@@ -151,6 +151,7 @@ function createResultFixture(params?: {
       }),
     },
     prepared: {
+      toolCatalog: { toolSearchRunPlan: { liveAllowedToolNames: new Set<string>() } },
       bootstrap: { bootstrapPromptWarning: {} },
       systemPrompt: { systemPromptReport: undefined },
       sessionRuntime: {

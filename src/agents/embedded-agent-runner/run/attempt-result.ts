@@ -1,6 +1,8 @@
+import { isPlainTextToolCallAttempt } from "../../../../packages/tool-call-repair/src/index.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
 import { freezeDiagnosticTraceContext } from "../../../infra/diagnostic-trace-context.js";
 import { isTransientNetworkError } from "../../../infra/retryable-network-errors.js";
+import { extractAssistantTranscriptSourceText } from "../../../shared/chat-message-content.js";
 import { projectAgentRunAttemptTerminal } from "../../agent-run-terminal-outcome.js";
 import { isCloudCodeAssistFormatError } from "../../embedded-agent-helpers.js";
 import type { CompletedAssistantAnswer } from "../../embedded-agent-subscribe.handlers.types.js";
@@ -24,7 +26,9 @@ import type { settleEmbeddedAttemptStream } from "./attempt-stream-settle.js";
 import {
   buildAttemptReplayMetadata,
   hasAttemptTerminalState,
+  resolveCurrentAttemptAssistant,
 } from "./attempt-terminal-evidence.js";
+import { isRunnerToolCallBlock } from "./attempt-tool-call-block-type.js";
 import { hasComposedVisibleAnswerAfterSettledTools } from "./incomplete-turn-classification.js";
 import { shouldTreatEmptyAssistantReplyAsSilent } from "./incomplete-turn-recovery.js";
 import { resolveSilentToolResultReplyPayload } from "./incomplete-turn-resolution.js";
@@ -272,7 +276,18 @@ export function completeEmbeddedAttemptResult(
     messagesSnapshot: state.messagesSnapshot,
     terminal: state.terminal,
   });
+  const assistant = resolveCurrentAttemptAssistant(state);
+  const textToolCallAttempt =
+    state.terminal.kind === "ok" &&
+    assistant?.stopReason === "stop" &&
+    evidence.toolMetas.length === 0 &&
+    !assistant.content.some(isRunnerToolCallBlock) &&
+    isPlainTextToolCallAttempt(
+      extractAssistantTranscriptSourceText(assistant) ?? "",
+      input.prepared.toolCatalog.toolSearchRunPlan.liveAllowedToolNames,
+    );
   const result: EmbeddedRunAttemptWithReceiptEvidence = {
+    ...(textToolCallAttempt ? { textToolCallAttempt: true } : {}),
     ...state,
     ...evidence,
     sandboxRuntime: input.setup.sandboxRuntime,
