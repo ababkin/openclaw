@@ -58,7 +58,8 @@ it.each(["draft", "focus"])(
       container,
     });
     onTestFinished(view.unmount);
-    await container.querySelector("openclaw-chat-question-panel")?.updateComplete;
+    await container.querySelector<ChatQuestionPanel>("openclaw-chat-question-panel")
+      ?.updateComplete;
     expect(container.textContent).not.toContain("Optional · work can continue");
     expect(container.textContent).toContain("1 unanswered question");
     if (editing === "focus") {

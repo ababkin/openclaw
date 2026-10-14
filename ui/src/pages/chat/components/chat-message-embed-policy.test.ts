@@ -9,7 +9,7 @@ import { buildMessageItems } from "../chat-thread-items.ts";
 import { GroupedMessage } from "./chat-message-bubble-view.tsx";
 import { MessageGroup, MessageGroupContent } from "./chat-message-group-view.tsx";
 import { prepareChatMessageRender } from "./chat-message-markdown.ts";
-import { StreamGroupParts } from "./chat-message-stream-view.tsx";
+import { StreamGroupParts, type StreamGroupPart } from "./chat-message-stream-view.tsx";
 
 function createEmbedHarness(container: HTMLElement, surface: "persisted" | "streaming") {
   type Props = {
@@ -33,7 +33,7 @@ function createEmbedHarness(container: HTMLElement, surface: "persisted" | "stre
             update = setProps;
             return surface === "streaming"
               ? createComponent(StreamGroupParts, {
-                  get parts() {
+                  get parts(): StreamGroupPart[] {
                     return [
                       {
                         kind: "stream",

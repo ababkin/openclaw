@@ -124,7 +124,7 @@ describe("shared chat content column", () => {
                 <For each={fixtures}>
                   {(fixture) => (
                     <MessageGroup
-                      group={fixture()}
+                      group={fixture}
                       options={{ ...options, isToolExpanded: () => true }}
                     />
                   )}
