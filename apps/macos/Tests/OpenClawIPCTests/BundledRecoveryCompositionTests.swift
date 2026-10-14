@@ -119,6 +119,13 @@ struct BundledRecoveryCompositionTests {
             })
         #expect(PostAppUpdateReceiptStore.pending(currentVersion: version)?.coreUpdatePending == true)
         #expect(try Data(contentsOf: agent) == futureBytes)
+        manager.stop()
+        await manager.waitForStartupAttempt()
+        try #require(manager.status == .stopped && manager.lastFailureReason == nil)
+        try #require(GatewayLaunchAgentManager.launchdProgramArguments() == [])
+        let stoppedAfterRefusal = try #require(
+            try await GatewayLaunchAgentManager.loadedGatewayState(port: GatewayEnvironment.gatewayPort()))
+        try #require(stoppedAfterRefusal.runningPID == nil)
         try FileManager.default.removeItem(at: agent)
         for artifact in retained {
             try FileManager.default.moveItem(at: artifact.appendingPathExtension("composition-original"), to: artifact)
