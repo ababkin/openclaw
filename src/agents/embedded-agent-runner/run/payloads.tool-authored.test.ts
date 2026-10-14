@@ -24,7 +24,7 @@ const toolAssistant = makeAgentAssistantMessage({
 });
 
 describe("tool-authored source reply payloads", () => {
-  it.each(["automatic"] as const)(
+  it.each(["automatic", "message_tool_only"] as const)(
     "preserves earlier and later input answers around a tool-authored reply in %s mode",
     (sourceReplyDeliveryMode) => {
       const earlier = makeAgentAssistantMessage({

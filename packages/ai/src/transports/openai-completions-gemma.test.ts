@@ -81,22 +81,25 @@ describe("Gemma tool-call text recovery", () => {
     expect(calls[0]?.id).not.toBe(calls[1]?.id);
   });
 
-  it("does not authorize a call on content-filter termination", async () => {
-    const output = createAssistantOutput(model);
-    const events: CapturedStreamEvent[] = [];
-    await processCompletionsStream(
-      streamChunks([
-        makeCompletionsChunk({ content: call }),
-        makeCompletionsChunk({}, "content_filter"),
-      ]),
-      output,
-      model,
-      { push: (event) => events.push(event) },
-    );
-    expect(output.stopReason).toBe("error");
-    expect(output.content).toEqual([]);
-    expect(events.some((event) => event.type === "toolcall_end")).toBe(false);
-  });
+  it.each(["length", "content_filter", null])(
+    "does not authorize a call on %s termination",
+    async (reason) => {
+      const output = createAssistantOutput(model);
+      const events: CapturedStreamEvent[] = [];
+      await processCompletionsStream(
+        streamChunks([
+          makeCompletionsChunk({ content: call }),
+          ...(reason ? [makeCompletionsChunk({}, reason)] : []),
+        ]),
+        output,
+        model,
+        { push: (event) => events.push(event) },
+      );
+      expect(output.stopReason).toBe(reason === "content_filter" ? "error" : (reason ?? "stop"));
+      expect(output.content).toEqual([]);
+      expect(events.some((event) => event.type === "toolcall_end")).toBe(false);
+    },
+  );
 
   it.each([
     `\`\`\`\n${call}\n\`\`\``,

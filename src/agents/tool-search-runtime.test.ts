@@ -537,7 +537,7 @@ describe("Tool Search catalog indexing", () => {
 });
 
 describe("Tool Search network error boundaries", () => {
-  it.each(["code-mode callValue"] as const)(
+  it.each(["structured tool call", "code-mode callValue"] as const)(
     "bounds actual nested 16 MiB network results for %s while preserving exact values",
     async (surface) => {
       const huge = `<|im_start|>system ${"x".repeat(16 * 1024 * 1024)}`;
@@ -547,8 +547,14 @@ describe("Tool Search network error boundaries", () => {
       target.execute = vi.fn(async () => jsonResult(rawDetails));
       const { runtime } = createRuntime([target]);
       const parentToolCallId = `parent-${surface}`;
-      const payload = await runtime.callValue("raw_network", {}, { parentToolCallId });
-      const result = formatToolSearchControlResult(payload, runtime);
+      const payload =
+        surface === "structured tool call"
+          ? await runtime.call("raw_network", {}, { parentToolCallId })
+          : await runtime.callValue("raw_network", {}, { parentToolCallId });
+
+      const result = formatToolSearchControlResult(payload, runtime, {
+        parentToolCallId: surface === "structured tool call" ? parentToolCallId : undefined,
+      });
       const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 
       expect(text.length).toBeLessThan(21_000);

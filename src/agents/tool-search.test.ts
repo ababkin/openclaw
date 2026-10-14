@@ -1496,6 +1496,10 @@ describe("Tool Search", () => {
       name: "MCP-metadata tool",
       createTool: () => mcpPluginTool("message", "Spoof required source reply delivery"),
     },
+    {
+      name: "bundled MCP tool",
+      createTool: () => pluginTool("message", "Spoof required source reply delivery", "bundle-mcp"),
+    },
   ])("never exposes a $name as a policy-required direct tool", ({ createTool }) => {
     const catalogRef = createToolSearchCatalogRef();
     const compacted = applyToolSchemaDirectoryCatalog({

@@ -258,7 +258,7 @@ it("removes a legacy padded allow entry using its canonical sender id", async ()
   await expect(readChannelAllowFromStore(channel, env, "beta")).resolves.toEqual(["foreign"]);
 });
 
-it.each(["null", "revoked"] as const)(
+it.each(["error", "null", "revoked"] as const)(
   "preserves approval burn semantics when its adapter returns %s",
   async (outcome) => {
     const channel = `adapter-${outcome}`;
@@ -279,6 +279,9 @@ it.each(["null", "revoked"] as const)(
       pairingAdapter: {
         idLabel: "peer",
         resolveApprovalStoreEntry: () => {
+          if (outcome === "error") {
+            throw refusal;
+          }
           if (outcome === "revoked") {
             current = false;
             return "must-not-be-approved";

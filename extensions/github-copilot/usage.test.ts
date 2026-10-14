@@ -27,6 +27,12 @@ describe("GitHub Copilot usage credential routing", () => {
       expectedDomain: "account.ghe.com",
     },
     {
+      label: "public OAuth before provider config",
+      credentialDomain: "github.com",
+      configuredDomain: "config.ghe.com",
+      expectedDomain: "github.com",
+    },
+    {
       label: "environment override before OAuth and config",
       credentialDomain: "account.ghe.com",
       configuredDomain: "config.ghe.com",

@@ -2416,28 +2416,30 @@ describe("grouped chat rendering", () => {
     expect(view.textContent).toContain("Pairing QR expired");
   });
 
-  it.each(["media://inbound/%00.png"])(
-    "does not proxy non-canonical inbound media ref %s",
-    (source) => {
-      const fetchMock = vi.fn();
-      vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+  it.each([
+    "media://inbound/nested%2Fphoto.png",
+    "media://inbound/%00.png",
+    "media://inbound/nested/../photo.png",
+    "media://inbound/..",
+  ])("does not proxy non-canonical inbound media ref %s", (source) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
 
-      renderGroupedMessage(
-        createUserMessage("", {
-          id: "user-invalid-inbound-media-ref",
-          __openclaw: { media: [{ path: source, contentType: "image/png" }] },
-        }),
-        "user",
-        {
-          showToolCalls: false,
-          assistantAttachmentAuthToken: "session-token",
-        },
-      );
+    renderGroupedMessage(
+      createUserMessage("", {
+        id: "user-invalid-inbound-media-ref",
+        __openclaw: { media: [{ path: source, contentType: "image/png" }] },
+      }),
+      "user",
+      {
+        showToolCalls: false,
+        assistantAttachmentAuthToken: "session-token",
+      },
+    );
 
-      expect(fetchMock).not.toHaveBeenCalled();
-      vi.unstubAllGlobals();
-    },
-  );
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
 
   it("fetches managed outgoing chat images with auth and requester scope", async () => {
     const managedChatImageUrl = `/api/chat/media/outgoing/agent%3Amain%3Amain/${crypto.randomUUID()}/full`;

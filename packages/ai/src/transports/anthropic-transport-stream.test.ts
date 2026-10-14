@@ -443,6 +443,32 @@ describe("anthropic transport stream", () => {
     },
   );
 
+  it.each([
+    {
+      label: "OAuth requests",
+      apiKey: "sk-ant-oat01-synthetic",
+      baseUrl: "https://api.anthropic.com",
+    },
+    {
+      label: "custom proxy endpoints",
+      apiKey: "sk-ant-api",
+      baseUrl: "https://proxy.example.com/v1",
+    },
+  ])("omits server-side fallback params for $label", async ({ apiKey, baseUrl }) => {
+    const result = await runTransportStream(
+      makeAnthropicTransportModel({ ...anthropicServerSideFallbackCases[0], baseUrl }),
+      undefined,
+      { apiKey },
+    );
+
+    expect(result.stopReason).toBe("stop");
+    expect(guardedFetchMock).toHaveBeenCalledOnce();
+    expect(latestAnthropicRequest().payload).not.toHaveProperty("fallbacks");
+    expect(latestAnthropicRequestHeaders().get("anthropic-beta") ?? "").not.toContain(
+      "server-side-fallback",
+    );
+  });
+
   it("rebuilds Fable output at a mid-stream server-side fallback boundary", async () => {
     mockSse([
       anthropicMessageStart({
@@ -873,6 +899,29 @@ describe("anthropic transport stream", () => {
   );
 
   it.each([
+    {
+      name: "buffered output without terminal status",
+      model: { id: "claude-fable-5", name: "Claude Fable 5" },
+      events: [
+        anthropicContentBlockStart(0, { type: "text", text: "" }),
+        anthropicContentBlockDelta(0, { type: "text_delta", text: "unsafe partial output" }),
+      ],
+      buffered: true,
+      unsealed: false,
+    },
+    {
+      name: "ordinary output without message_stop",
+      model: {},
+      events: [
+        anthropicMessageStart({ id: "msg_partial", usage: { input_tokens: 3, output_tokens: 0 } }),
+        anthropicContentBlockStart(0, { type: "text", text: "" }),
+        anthropicContentBlockDelta(0, { type: "text_delta", text: "truncated answer" }),
+        { type: "content_block_stop", index: 0 },
+        anthropicMessageDelta({ stop_reason: "end_turn" }, { input_tokens: 3, output_tokens: 2 }),
+      ],
+      buffered: false,
+      unsealed: false,
+    },
     {
       name: "active tool call without content_block_stop",
       model: {},

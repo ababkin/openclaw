@@ -384,6 +384,11 @@ describe("createComputerTool v1 execution", () => {
 
   it.each([
     [
+      "fails closed when a coordinate action has no observed screenshot frame",
+      { action: "left_click", coordinate: [5, 5] },
+      /screenshot/i,
+    ],
+    [
       "does not let an explicit screen index substitute for an observed frame",
       {
         action: "left_click",

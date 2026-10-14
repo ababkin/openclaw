@@ -1193,6 +1193,24 @@ describe("buildCachedChatItems", () => {
 
   it.each([
     {
+      name: "suppresses active HEARTBEAT_OK streams before rendering",
+      stream: "HEARTBEAT_OK",
+    },
+    {
+      name: "suppresses active sender metadata streams before rendering",
+      stream: SENDER_METADATA_BLOCK,
+    },
+  ])("$name", ({ stream }) => {
+    const items = buildItems({
+      stream,
+      streamStartedAt: 1,
+    });
+
+    expect(items).toStrictEqual([]);
+  });
+
+  it.each([
+    {
       name: "persisted prefix around an unkeyed preamble",
       liveOnly: false,
       props: {
