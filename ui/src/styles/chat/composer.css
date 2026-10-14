@@ -29,7 +29,6 @@
 .chat-picker-overlay {
   /* Try the full panel before shrinking it to the preferred side's remaining space. */
   max-height: min(var(--oc-overlay-max-height, 420px), calc(100dvh - 16px));
-  position-try-order: most-height;
   position-try-fallbacks:
     --chat-picker-fit flip-block,
     --chat-picker-fit,

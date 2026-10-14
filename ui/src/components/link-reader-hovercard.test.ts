@@ -65,7 +65,7 @@ function connect(
   provider: LinkReaderHovercardProvider,
   request = vi.fn().mockResolvedValue(preview()),
 ) {
-  provider.client = { request } as unknown as GatewayBrowserClient;
+  provider.client = { request, connected: true } as unknown as GatewayBrowserClient;
   return request;
 }
 function card() {
@@ -355,7 +355,7 @@ describe("openclaw-link-reader-hovercard-provider", () => {
   });
 
   it("expires and bounds successful preview cache entries", async () => {
-    const { anchor, provider } = createLink();
+    const { provider } = createLink();
     const request = connect(
       provider,
       vi
@@ -364,20 +364,24 @@ describe("openclaw-link-reader-hovercard-provider", () => {
           Promise.resolve(preview(params.url)),
         ),
     );
-    await hover(anchor);
-    leave(anchor);
-    await vi.advanceTimersByTimeAsync(5 * 60_000);
-    await hover(anchor);
+    const signal = new AbortController().signal;
+    await provider.prefetch({ href, reader: github }, signal);
+    expect(request).toHaveBeenCalledTimes(1);
+    await provider.prefetch({ href, reader: github }, signal);
+    expect(request).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(new Date("2026-07-05T10:05:00Z"));
+    await provider.prefetch({ href, reader: github }, signal);
     expect(request).toHaveBeenCalledTimes(2);
-    leave(anchor);
     for (let index = 1; index <= 100; index++) {
-      anchor.href = "https://github.com/openclaw/openclaw/issues/" + index;
-      await hover(anchor);
-      leave(anchor);
+      await provider.prefetch(
+        { href: "https://github.com/openclaw/openclaw/issues/" + index, reader: github },
+        signal,
+      );
     }
-    anchor.href = href;
-    await hover(anchor);
+    expect(request).toHaveBeenCalledTimes(102);
+    await provider.prefetch({ href, reader: github }, signal);
     expect(request).toHaveBeenCalledTimes(103);
+    expect(card()).toBeNull();
   });
 
   it.each([
