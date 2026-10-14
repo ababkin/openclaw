@@ -247,14 +247,17 @@ export type SessionMaintenanceMetadataResult =
       readOnlyInput?: SessionEntryMaintenanceInput;
     };
 
-export type SessionMaintenanceReadCommand = Exclude<
-  SessionMaintenanceMetadataCommand,
-  { kind: "maintenance-statistics" }
-> & { expectedIdentity: DatabasePathIdentity };
+export type SessionMaintenanceReadCommand = (
+  | Extract<SessionMaintenanceMetadataCommand, { kind: "maintenance-age" }>
+  | (Extract<SessionMaintenanceMetadataCommand, { kind: "maintenance-plan" }> & {
+      input: { preservation: null };
+    })
+) & { expectedIdentity: DatabasePathIdentity };
 
-export type SessionMaintenanceReadResult =
-  | { kind: "maintenance-write-required" }
-  | Exclude<SessionMaintenanceMetadataResult, { kind: "maintenance-statistics" }>;
+export type SessionMaintenanceReadResult = Exclude<
+  SessionMaintenanceMetadataResult,
+  { kind: "maintenance-statistics" }
+>;
 
 export type SqliteSessionReclamationPlan =
   | (SessionReclamationPlanBase & {

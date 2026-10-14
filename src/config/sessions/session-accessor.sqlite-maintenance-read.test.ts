@@ -41,7 +41,7 @@ it("reads warm maintenance without a transaction and observes newly committed ca
           maxEntries: 1,
           pruneAfter: "1d",
         }),
-        preservation: { providerKeys: [], workIdentities: [], lifecycleIdentities: [] },
+        preservation: null,
       },
     } satisfies SessionMaintenanceReadCommand & { databaseOptions: ReclamationDatabaseOptions };
     expect(readSessionMaintenanceInWorker(plan, database).kind).toBe("maintenance-plan");
@@ -52,7 +52,7 @@ it("reads warm maintenance without a transaction and observes newly committed ca
       write(1);
       exec.mockClear();
       expect(readSessionMaintenanceInWorker(plan, database)).toEqual({
-        kind: "maintenance-write-required",
+        kind: "maintenance-preservation-required",
       });
     } finally {
       exec.mockRestore();

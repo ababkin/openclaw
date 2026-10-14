@@ -218,11 +218,14 @@ export async function runSqliteSessionReclamation(params: {
           );
         }
       };
-      const readPlan = params.plan;
-      if (
-        readPlan.kind === "maintenance-plan" ||
-        (readPlan.kind === "maintenance-age" && readPlan.readOnly)
-      ) {
+      // Runtime preservation already requires metadata preparation; do not scan twice under FIFO.
+      const readPlan =
+        params.plan.kind === "maintenance-plan" && params.plan.input.preservation === null
+          ? { ...params.plan, input: { ...params.plan.input, preservation: null } }
+          : params.plan.kind === "maintenance-age" && params.plan.readOnly
+            ? params.plan
+            : undefined;
+      if (readPlan) {
         const options = readPlan.databaseOptions;
         const source = {
           agentId: normalizeAgentId(options.agentId),
@@ -250,7 +253,10 @@ export async function runSqliteSessionReclamation(params: {
             async () => {
               assertRequestCurrent();
               if (readPlan.kind === "maintenance-plan") {
-                Object.assign(readPlan.input, params.refreshMaintenanceProtection?.());
+                const protection = params.refreshMaintenanceProtection?.();
+                if (protection) {
+                  readPlan.input.activeSessionKeys = protection.activeSessionKeys;
+                }
               }
               const assertNativeCurrent = captureSessionEntryNativeMutationWitness([source]);
               const consume = (reply: {
@@ -270,9 +276,7 @@ export async function runSqliteSessionReclamation(params: {
                   }
                   readResult = { kind: "maintenance-plan-stale" };
                 }
-                if (readResult.kind !== "maintenance-write-required") {
-                  params.onWorkerResult?.(readResult, identity.key.slice(5));
-                }
+                params.onWorkerResult?.(readResult, identity.key.slice(5));
                 if (
                   readResult.kind === "maintenance-plan" &&
                   params.consumeReadOnlyMaintenancePlan
@@ -358,9 +362,7 @@ export async function runSqliteSessionReclamation(params: {
             "foreground",
             signal,
           );
-          if (result.kind !== "maintenance-write-required") {
-            return result;
-          }
+          return result;
         } finally {
           await execution?.release();
         }

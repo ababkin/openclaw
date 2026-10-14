@@ -194,8 +194,11 @@ export function readSessionMaintenanceInWorker(
             const prepared = prepareSessionEntryMaintenanceInDatabase(database, input, () =>
               readPreservation(input),
             );
-            if (prepared.kind === "write") {
-              return { kind: "maintenance-write-required" };
+            // Every candidate mutation needs runtime preservation, which this reader cannot supply.
+            if (prepared.kind !== "no-op") {
+              throw new MaintenancePreservationRequiredError(
+                "SQLite maintenance requires session preservation",
+              );
             }
             return {
               kind: "maintenance-plan",

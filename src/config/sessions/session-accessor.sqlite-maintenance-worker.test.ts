@@ -434,22 +434,28 @@ it.each([
       const storePath = path.join(state.sessionsDir(), "sessions.json");
       const active = { sessionKey: "agent:main:age-worker-active", storePath };
       const victim = { sessionKey: "agent:main:age-worker-victim", storePath };
+      const intrinsic = boundary === "before-read-consumption";
       const policy = resolveMaintenanceConfigFromInput({
         mode: "enforce",
         maxEntries: 1,
-        pruneAfter: "1s",
+        pruneAfter: intrinsic ? "1h" : "1s",
         preserveRecent: "1h",
       });
-      // Cap pressure requires Worker admission even with a warm age fact. Recent
-      // rows remain protected until the injected backdate/restore makes the victim old.
+      // Intrinsic claims keep the consumption probe on the read-only boundary;
+      // the other probes use recent protection until their victim becomes old.
       replaceSessionEntrySync(
         { sessionKey: "agent:main:age-worker-pressure", storePath },
-        { sessionId: "pressure", updatedAt: Date.now() },
+        { sessionId: "pressure", updatedAt: Date.now(), modelSelectionLocked: intrinsic },
       );
-      replaceSessionEntrySync(active, { sessionId: "active", updatedAt: Date.now() });
+      replaceSessionEntrySync(active, {
+        sessionId: "active",
+        updatedAt: Date.now(),
+        modelSelectionLocked: intrinsic,
+      });
       replaceSessionEntrySync(victim, {
         sessionId: "victim",
         updatedAt: mutation === "restore" ? 1 : Date.now(),
+        modelSelectionLocked: intrinsic,
         ...(mutation === "restore"
           ? { archivedAt: 2, archiveReason: "age-retention" as const }
           : {}),
@@ -475,6 +481,10 @@ it.each([
         await prepared;
         expect(warmWorkerThreadId).toBeGreaterThan(0);
         vi.restoreAllMocks();
+      }
+      if (intrinsic) {
+        // A new policy requests a fresh proof from the already warm protected owner.
+        policy.maxEntries = 2;
       }
       let changed = false;
       const mutate = () => {
