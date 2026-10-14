@@ -15,7 +15,6 @@ import {
   resolveUiSelectedGlobalAgentId,
 } from "../../lib/sessions/session-key.ts";
 import { generateUUID } from "../../lib/uuid.ts";
-import { defineSolidBridge } from "../../lit/solid-bridge.ts";
 import { buildInitialChatSubmission } from "../chat/user-message-content.ts";
 import { retainRejectedInitialTurn } from "../new-session/rejected-initial-turn.ts";
 import { resolveWorkshopAccess } from "./access.ts";
@@ -433,15 +432,15 @@ class SkillWorkshopPageState {
   }
 }
 
-export const SkillWorkshopPage = defineSolidBridge(
-  "openclaw-skill-workshop-page",
-  () => {
-    const [revision, setRevision] = createSignal(0, { ownedWrite: true });
-    const state = new SkillWorkshopPageState(useApplication(), revision, () => {
-      setRevision((value) => value + 1);
-    });
-    const view = createMemo(() => state.viewProps());
-    return <SkillWorkshopView view={view} />;
-  },
-  { properties: {} },
-);
+export function SkillWorkshopPage() {
+  const [revision, setRevision] = createSignal(0, { ownedWrite: true });
+  const state = new SkillWorkshopPageState(useApplication(), revision, () => {
+    setRevision((value) => value + 1);
+  });
+  const view = createMemo(() => state.viewProps());
+  return (
+    <openclaw-skill-workshop-page>
+      <SkillWorkshopView view={view} />
+    </openclaw-skill-workshop-page>
+  );
+}

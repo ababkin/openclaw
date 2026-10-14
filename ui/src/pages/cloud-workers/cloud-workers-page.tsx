@@ -21,7 +21,6 @@ import { useApplication } from "../../lib/reactive/context.ts";
 import { projectRuntimeConfig } from "../../lib/reactive/domain-capabilities.ts";
 import { useGatewayPage } from "../../lib/reactive/gateway-page.ts";
 import { registerEnglishCatalog, t } from "../../lib/reactive/i18n.ts";
-import { defineSolidBridge } from "../../lit/solid-bridge.ts";
 import { CloudWorkerConfigSave } from "./cloud-worker-config-save.ts";
 import {
   buildCloudWorkerDeletePatch,
@@ -39,7 +38,7 @@ const CLOUD_WORKERS_DOCS_URL = "https://docs.openclaw.ai/gateway/cloud-workers";
 type ProfileSummary = NonNullable<EnvironmentsListResult["profiles"]>[number];
 type EditorState = { kind: "add" } | { kind: "edit"; profileId: string } | null;
 
-function CloudWorkersContent() {
+export function CloudWorkersPage() {
   const context = useApplication();
   const [view, setView] = createStore<{ editor: EditorState; draft: CloudWorkerProfileDraft }>({
     editor: null,
@@ -520,7 +519,7 @@ function CloudWorkersContent() {
   }
 
   return (
-    <>
+    <openclaw-cloud-workers-page>
       <SettingsPageHeader title={t("tabs.cloudWorkers")} />
       <SettingsWorkspace>
         <CloudWorkerEnvironments
@@ -571,12 +570,6 @@ function CloudWorkersContent() {
           )}
         />
       </SettingsWorkspace>
-    </>
+    </openclaw-cloud-workers-page>
   );
 }
-
-export const CloudWorkersPage = defineSolidBridge(
-  "openclaw-cloud-workers-page",
-  CloudWorkersContent,
-  { properties: {} },
-);
