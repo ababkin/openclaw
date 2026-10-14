@@ -292,6 +292,7 @@ function ChatQueueItem(rowProps: {
 }) {
   const menuId = createUniqueId();
   let menu!: MenuHandle;
+  let pointerSelection = false;
   const item = () => rowProps.item;
   const reorder = () => rowProps.reorder;
   const edit = createMemo(() => rowProps.controls.queuedEdit);
@@ -670,18 +671,22 @@ function ChatQueueItem(rowProps: {
                 label: t("chat.queue.editQueuedMessage"),
                 icon: <Icon name="pencil" />,
                 disabled: !canEdit(),
+                attributes: {
+                  onClick: (event) => {
+                    // Programmatic menu focus can retain :focus-visible after a pointer click.
+                    pointerSelection = event.detail > 0;
+                  },
+                },
               },
             ]}
             ref={(handle) => {
               menu = handle;
             }}
             onSelect={(selected) => {
+              const keyboard = !pointerSelection;
+              pointerSelection = false;
               if (selected.id === "edit" && canEdit()) {
-                const option = menu.overlay.surface.querySelector('[data-value="edit"]');
-                markQueueEditFocus(
-                  option?.closest(".chat-queue__item") ?? null,
-                  option?.matches(":focus-visible") ?? false,
-                );
+                markQueueEditFocus(menu.overlay.surface.closest(".chat-queue__item"), keyboard);
                 edit()?.onEdit?.(item().id);
               }
             }}
