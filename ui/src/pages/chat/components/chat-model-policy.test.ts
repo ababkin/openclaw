@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { createComponent } from "solid-js";
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ModelCatalogResult } from "../../../api/types.ts";
 import { createSessionsListResult } from "../../../test-helpers/chat-model.ts";
 import { mountSolid } from "../../../test-helpers/mount-solid.ts";
@@ -25,7 +25,7 @@ function mountControls(catalog: ModelCatalogResult, retired = false) {
   const selectedSession = { ...sessions.sessions[0]!, modelOverrideSource: "user" as const };
   const onModelSelect = vi.fn(async () => undefined);
   const before = JSON.stringify(selectedSession);
-  const view = mountSolid(
+  mountSolid(
     () =>
       createComponent(ChatModelControls, {
         activeRunId: null,
@@ -50,7 +50,6 @@ function mountControls(catalog: ModelCatalogResult, retired = false) {
       }),
     { container },
   );
-  onTestFinished(view.unmount);
   expect(JSON.stringify(selectedSession)).toBe(before);
   return { container, onModelSelect };
 }

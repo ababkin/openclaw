@@ -1,8 +1,8 @@
 /* @vitest-environment jsdom */
 
 import { expectDefined } from "@openclaw/normalization-core";
-import { createComponent, createSignal, merge } from "solid-js";
-import { expect, it, onTestFinished, vi } from "vitest";
+import { createSignal } from "solid-js";
+import { expect, it, vi } from "vitest";
 import { createSessionsListResult } from "../../../test-helpers/chat-model.ts";
 import { mountSolid } from "../../../test-helpers/mount-solid.ts";
 import { flush } from "../../../test-helpers/solid-settle.ts";
@@ -50,11 +50,9 @@ function controls(overrides: Partial<Props>) {
     ...overrides,
   };
   const [current, setCurrent] = createSignal(props);
-  const view = mountSolid(() => createComponent(ChatModelControls, merge(current)), { container });
-  onTestFinished(view.unmount);
+  mountSolid(() => <ChatModelControls {...current()} />, { container });
   const update = (next: Partial<Props>) => {
-    Object.assign(props, next);
-    setCurrent({ ...props });
+    setCurrent({ ...current(), ...next });
     flush();
   };
   return {
