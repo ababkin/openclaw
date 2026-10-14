@@ -5,7 +5,7 @@ import { createComposerProps, resetComposerFixture } from "./chat-composer.test-
 import { createAsyncQuestionPresentation } from "./components/chat-async-question.ts";
 import { resolveComposerQuestionPanel } from "./components/chat-composer-question.tsx";
 import { getChatComposerState } from "./components/chat-composer-state.ts";
-import "./components/chat-question-panel.tsx";
+import { ChatQuestionPanel } from "./components/chat-question-panel.tsx";
 
 afterEach(() => resetComposerFixture());
 
@@ -52,11 +52,10 @@ it.each(["draft", "focus"])(
     expect(panel.model.autoFocus).toBe(false);
     const container = document.createElement("div");
     document.body.append(container);
-    const questionPanel = document.createElement("openclaw-chat-question-panel");
+    const questionPanel = new ChatQuestionPanel.Element();
     questionPanel.props = panel;
     container.append(questionPanel);
-    await (container.firstElementChild as HTMLElement & { updateComplete: Promise<unknown> })
-      .updateComplete;
+    await questionPanel.updateComplete;
     expect(container.textContent).not.toContain("Optional · work can continue");
     expect(container.textContent).toContain("1 unanswered question");
     if (editing === "focus") {

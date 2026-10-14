@@ -9,6 +9,7 @@ import {
   resetComposerFixture,
   renderComposerInto,
 } from "./chat-composer.test-support.ts";
+import { solidTemplate } from "./components/chat-composer-controls.ts";
 import { questionPanelIn } from "./components/chat-question-card.test-support.ts";
 
 function questionPrompt(id: string, question: string): QuestionPrompt {
@@ -62,7 +63,7 @@ describe("composer question takeover", () => {
         sessionKey: "queue-test",
         draft: "Keep this draft",
         gatewayQuestionPrompts: [],
-        composerControls: modelControl,
+        composerControls: solidTemplate(() => modelControl, {}),
         onRequestUpdate: vi.fn(),
       });
       composerProps.onDraftChange = (next) => {
