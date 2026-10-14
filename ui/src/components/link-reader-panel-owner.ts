@@ -72,6 +72,9 @@ export class LinkReaderPanelOwner {
   get presented() {
     return this.props.presented;
   }
+  get tabsInHeader() {
+    return this.props.tabsInHeader;
+  }
   get sessionKey() {
     return this.props.sessionKey;
   }
@@ -85,11 +88,17 @@ export class LinkReaderPanelOwner {
   addController(controller: DockController) {
     this.controllers.push(controller);
   }
+  removeController(controller: DockController) {
+    this.controllers = this.controllers.filter((item) => item !== controller);
+  }
   requestUpdate() {
     this.invalidate();
   }
   dispatchEvent(event: Event) {
     return this.host.dispatchEvent(event);
+  }
+  get updateComplete() {
+    return Promise.resolve(true);
   }
   private hostedSignature = "";
 
@@ -105,6 +114,10 @@ export class LinkReaderPanelOwner {
   }
   get activeHostedTabId(): string | null {
     return this.activeId;
+  }
+  async closeHostedTab(id: string): Promise<void> {
+    this.closeTab(id);
+    await this.updateComplete;
   }
   urlDraft = "";
   invalidUrl = false;

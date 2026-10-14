@@ -138,23 +138,24 @@ describe("channel DM access request views", () => {
   it("renders notice and error feedback as status rows without nested callouts", () => {
     const noticeProps = createProps({ pairingNotice: "Request approved" });
     const noticeContainer = renderInto(renderChannelPairingQueue, noticeProps);
-    const notice = noticeContainer.querySelector('[role="status"]');
+    const noticeSelector = '.channels-pairing-feedback[role="status"]';
+    const notice = noticeContainer.querySelector(noticeSelector);
 
     expect(notice?.textContent).toContain("Request approved");
     expect(noticeContainer.querySelector(".callout")).toBeNull();
     noticeProps.pairingNotice = "Request dismissed";
     renderChannelView(renderChannelPairingQueue, noticeProps, noticeContainer);
-    expect(noticeContainer.querySelector('[role="status"]')).toBe(notice);
+    expect(noticeContainer.querySelector(noticeSelector)).toBe(notice);
     expect(notice?.textContent).toContain("Request dismissed");
     noticeProps.pairingNotice = null;
     renderChannelView(renderChannelPairingQueue, noticeProps, noticeContainer);
-    expect(noticeContainer.querySelector('[role="status"]')).toBeNull();
+    expect(noticeContainer.querySelector(noticeSelector)).toBeNull();
 
     const errorContainer = renderInto(
       renderChannelPairingQueue,
       createProps({ channels: { pairingError: "Approval failed" } }),
     );
-    const error = errorContainer.querySelector('[role="alert"]');
+    const error = errorContainer.querySelector('.channels-pairing-feedback[role="alert"]');
 
     expect(error?.textContent).toContain("Approval failed");
     expect(errorContainer.querySelector(".callout")).toBeNull();

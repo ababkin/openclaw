@@ -184,19 +184,18 @@ function CustodianSurfaceView(props: CustodianSurfaceProps, host: HTMLElement) {
       source.connect(context, sessionVariant(onboarding, newAgentIntent));
     },
   );
-  const plugin = createMemo(() => {
+  const plugin = () => {
     store();
     return currentPluginHelpReference(context);
-  });
+  };
   const placeholder = () =>
     plugin()
       ? t("custodian.pluginPlaceholder", { plugin: plugin()!.name })
       : t("custodian.placeholder");
-  const activeWizardMessage = createMemo(() =>
+  const activeWizardMessage = () =>
     store().wizardInputPending
       ? store().messages.findLast((message) => message.step !== null)
-      : undefined,
-  );
+      : undefined;
   const pluginWelcome = () =>
     Boolean(
       plugin() &&
