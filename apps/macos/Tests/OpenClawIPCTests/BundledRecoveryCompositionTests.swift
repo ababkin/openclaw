@@ -184,6 +184,8 @@ struct BundledRecoveryCompositionTests {
             await GatewayConnection.shared.shutdown()
             // The launcher retains this exact named service until the fresh relaunch host joins it.
         } catch {
+            // Cancellation otherwise hides the accessibility snapshot carried by the wait failure.
+            print("Bundled recovery composition failed: \(error.localizedDescription)")
             // The still-live app owner joins its service stop before a failed fixture host exits.
             manager.stop()
             await manager.waitForStartupAttempt()
