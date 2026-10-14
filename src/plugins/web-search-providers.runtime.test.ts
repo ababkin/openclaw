@@ -406,7 +406,7 @@ describe("resolvePluginWebSearchProviders", () => {
     expect(loadOpenClawPluginsMock).not.toHaveBeenCalled();
   });
 
-  it("preserves Moonshot region and model setup without activating the plugin", async () => {
+  it("preserves Moonshot region setup without activating the plugin", async () => {
     loadInstalledPluginManifestRegistryMock.mockReturnValueOnce({
       plugins: [createWebSearchManifestRecord({ id: "moonshot", providerId: "kimi" })],
       diagnostics: [],
@@ -428,7 +428,6 @@ describe("resolvePluginWebSearchProviders", () => {
     expect(loadOpenClawPluginsMock).not.toHaveBeenCalled();
     expect(select.mock.calls.map(([params]) => requireRecord(params).message)).toEqual([
       "Kimi API region",
-      "Kimi web search model",
     ]);
     expect(next).toMatchObject({
       plugins: {
@@ -437,7 +436,6 @@ describe("resolvePluginWebSearchProviders", () => {
             config: {
               webSearch: {
                 baseUrl: "https://api.moonshot.ai/v1",
-                model: "kimi-k2.6",
               },
             },
           },
