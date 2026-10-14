@@ -62,7 +62,6 @@ describe("terminal resolution for a tool call written as text", () => {
     const input = makeTextCallInput();
     input.retryState.textToolCallAttempts = 1;
     input.replayState.hadPotentialSideEffects = true;
-    input.replayState.replaySafe = false;
     const result = await resolveEmbeddedRunTerminal(input);
     expect(result.action).toBe("complete");
     expect(input.sessionPromptState.activateInternalPrompt).not.toHaveBeenCalled();
