@@ -3,6 +3,7 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { ExecApprovalRequest } from "../../app/exec-approval.ts";
 import type { SolidBridgeElement } from "../../lit/solid-bridge.ts";
+import { flush } from "../../test-helpers/solid-settle.ts";
 import { resetChatViewState } from "./chat-view-state.ts";
 import { renderChatView, requireElement } from "./chat-view.test-helpers.ts";
 import {
@@ -120,10 +121,10 @@ describe("inline approval card", () => {
     expect(card?.getAttribute("data-approval-id")).toBe("approval-inline");
     expectFooterContext(container, inlineSurface);
     const countdown = expectDefined(
-      container.querySelector<SolidBridgeElement<object>>(".exec-approval-countdown"),
+      container.querySelector<HTMLElement>(".exec-approval-countdown"),
       "inline approval countdown",
     );
-    await countdown.updateComplete;
+    flush();
     expect(countdown.textContent?.trim()).toBe("expires in 01:00");
     expect(container.querySelector(".exec-approval-command-span")?.textContent).toBe("rm -r");
     expect(container.querySelector(".exec-approval-error")?.textContent).toBe(
