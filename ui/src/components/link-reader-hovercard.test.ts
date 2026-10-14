@@ -356,24 +356,29 @@ describe("openclaw-link-reader-hovercard-provider", () => {
 
   it("expires and bounds successful preview cache entries", async () => {
     const { anchor, provider } = createLink();
-    const request = vi
-      .fn()
-      .mockImplementation((_method: string, params: { url: string }) =>
-        Promise.resolve(preview(params.url)),
-      );
-    // SAFETY: This fixture only uses the client's request and connected fields.
-    provider.client = { request, connected: true } as unknown as GatewayBrowserClient;
+    const request = connect(
+      provider,
+      vi
+        .fn()
+        .mockImplementation((_method: string, params: { url: string }) =>
+          Promise.resolve(preview(params.url)),
+        ),
+    );
     await hover(anchor);
     leave(anchor);
     await vi.advanceTimersByTimeAsync(5 * 60_000);
     await hover(anchor);
     expect(request).toHaveBeenCalledTimes(2);
     leave(anchor);
-    await vi.advanceTimersByTimeAsync(120);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(card()).toBeNull();
+    Object.assign(provider.client!, { connected: true });
+    const signal = new AbortController().signal;
+    // Fill the same cache without creating 100 disposable hovercard portals.
     for (let index = 1; index <= 100; index++) {
       await provider.prefetch(
         { href: "https://github.com/openclaw/openclaw/issues/" + index, reader: github },
-        new AbortController().signal,
+        signal,
       );
     }
     await hover(anchor);
