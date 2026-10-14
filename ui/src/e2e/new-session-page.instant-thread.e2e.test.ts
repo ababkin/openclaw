@@ -400,8 +400,8 @@ suite.define(() => {
         await navigateInApp(page, "new-session", "?agent=main");
         const composer = page.locator(".new-session-page__message");
         if (readiness) {
-          // Wait for the retained draft before fill selects and replaces it.
-          await expect.poll(() => composer.inputValue()).toBe(submitted);
+          // Acceptance consumes the draft while preview readiness is still pending.
+          await expect.poll(() => composer.inputValue()).toBe("");
         }
         await composer.fill(message);
         const newerUrl = page.url();
