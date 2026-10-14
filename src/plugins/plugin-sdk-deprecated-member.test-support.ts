@@ -38,8 +38,11 @@ try {
   assert.equal(fs.existsSync(storePath), false);
   const apis = getPluginSdkDeprecationUsage(instance.pluginId);
   assert.equal(apis.length, 1);
-  assert.equal(apis[0].displayName, "resolveCronStorePath");
-  assert.equal(apis[0].replacement, "resolveCronStorePathAsync");
+  const [apiUsage] = apis;
+  assert.ok(apiUsage);
+  assert.equal(apiUsage.displayName, "resolveCronStorePath");
+  assert.equal(apiUsage.replacement, "resolveCronStorePathAsync");
+  assert.equal(apiUsage.removeAfter, "2026-12-31");
   process.stdout.write(JSON.stringify(buildPluginSdkDeprecationNotices(instance.pluginId)));
 } finally {
   await instance.dispose();

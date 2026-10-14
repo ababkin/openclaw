@@ -127,7 +127,14 @@ describe("plugin management Gateway handlers", () => {
               {
                 code: "deprecated-sdk-api",
                 severity: "info",
-                apis: [{ displayName: "getSessionEntry", replacement: "getSessionEntryAsync" }],
+                removalDate: "2026-12-31",
+                apis: [
+                  {
+                    displayName: "getSessionEntry",
+                    replacement: "getSessionEntryAsync",
+                    removeAfter: "2026-12-31",
+                  },
+                ],
               },
             ],
           },

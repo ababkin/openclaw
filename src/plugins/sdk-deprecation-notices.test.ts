@@ -32,6 +32,18 @@ it("presents recorded members, replacement hints, and their approved final compa
   expect(buildPluginSdkDeprecationNotices("notice-unused")).toEqual([]);
 });
 
+it("keeps the earliest announced retirement visible alongside undated APIs", () => {
+  recordPluginSdkDeprecationUsage("notice-mixed", "older", "older", "current");
+  recordPluginSdkDeprecationUsage("notice-mixed", "later", "later", "current", "2027-03-31");
+  recordPluginSdkDeprecationUsage("notice-mixed", "sooner", "sooner", "current", "2026-12-31");
+  expect(buildPluginSdkDeprecationNotices("notice-mixed")).toMatchObject([
+    {
+      removalDate: "2026-12-31",
+      message: expect.stringContaining("retire on Dec 31, 2026"),
+    },
+  ]);
+});
+
 it("uses registry metadata only for deprecated subpaths and does not invent an undated deadline", () => {
   recordPluginSdkDeprecatedImport("notice-subpaths", "openclaw/plugin-sdk/session-store-runtime");
   expect(buildPluginSdkDeprecationNotices("notice-subpaths")).toEqual([]);

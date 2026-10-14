@@ -44,6 +44,24 @@ it.each([false, true])(
   async (sourceTransform) => {
     const root = fs.realpathSync(temp.make("plugin-deprecated-imports-"));
     const host = path.join(root, "host");
+    const config = JSON.parse(fs.readFileSync(path.resolve("tsconfig.json"), "utf8")) as {
+      compilerOptions: { paths: Record<string, string[]> };
+    };
+    // Keep workspace imports while allowing the synthetic host to own its SDK self-imports.
+    const tsconfig = write(
+      root,
+      "tsconfig.json",
+      JSON.stringify({
+        extends: path.resolve("tsconfig.json"),
+        compilerOptions: {
+          paths: Object.fromEntries(
+            Object.entries(config.compilerOptions.paths)
+              .filter(([name]) => !name.startsWith("openclaw/"))
+              .map(([name, targets]) => [name, targets.map((target) => path.resolve(target))]),
+          ),
+        },
+      }),
+    );
     write(
       host,
       "package.json",
@@ -133,11 +151,11 @@ it.each([false, true])(
          for (const instance of instances.reverse()) await instance.dispose();
        }`,
     );
-    const { stdout } = await execute(process.execPath, [
-      "--import",
-      pathToFileURL(path.resolve("scripts/tsx.mjs")).href,
-      probe,
-    ]);
+    const { stdout } = await execute(
+      process.execPath,
+      ["--import", pathToFileURL(path.resolve("scripts/tsx.mjs")).href, probe],
+      { env: { ...process.env, TSX_TSCONFIG_PATH: tsconfig } },
+    );
     expect(stdout.trim()).toBe("deprecated imports attributed once");
   },
 );

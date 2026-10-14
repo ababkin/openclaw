@@ -168,7 +168,7 @@ releasing request resources. Released opaque-requester and synchronous lifecycle
 methods remain deprecated compatibility routes; actual use shares one warning
 budget per plugin and publication family. See
 [GitHub publication migration](/plugins/sdk-migration/how-to-migrate#await-github-publication-operations)
-for the method mapping, callback ordering, and next-major removal contract.
+for the method mapping, callback ordering, and ordinary stable removal contract.
 
 Use `createPluginRuntimeStore` to store the runtime reference for use outside the `register` callback:
 
@@ -448,8 +448,10 @@ explicit `close()` do not abort the signal; an aborted signal never authorizes
 replaying an acknowledged or unknown-outcome write.
 The deprecated `withOpenClawAgentDatabaseRuntime` and
 `withOpenClawAgentDatabaseAsync` retain their native callbacks and admission
-ordering, including the latter's post-integrity, pre-repair checkpoint, until
-the next Plugin SDK major. Awaiting those callbacks does not move SQL off-thread.
+ordering, including the latter's post-integrity, pre-repair checkpoint, through
+2026-12-31. Removal ships in the first January 2027 stable release; see the
+[SQLite migration guide](/plugins/sdk-migration/sqlite-async#debug-proxy-capture-and-raw-sqlite).
+Awaiting those callbacks does not move SQL off-thread.
 
 Transcript assertion composition preserves prepared source checks independently
 of opaque SDK callbacks. Cold restoration can recheck those prepared components
@@ -684,6 +686,16 @@ after consumer retirement. See [decision models](/plugins/sdk-overview/capabilit
 for provider selection, lifecycle, failure handling, limits, and diagnostics.
 
 ## Setup secret egress
+
+Worker providers can optionally implement `runSetupCommand` to run repository
+binding lifecycle commands over their owned lease transport. The host supplies
+the prepared workspace and HOME, a script factory accepting only the bounded
+remote environment, and a live attached-environment/repository authority guard.
+The provider rechecks that guard after awaits and immediately before launch.
+Returning `undefined` retains the normal node tunnel; a protected transport error
+must reject instead of falling back. Project preparation's script factory accepts
+the same bounded prepared environment. Secrets and host proxy credentials remain
+owned by the setup-egress capability below.
 
 The private official-plugin entrypoint `openclaw/plugin-sdk/secret-egress-runtime`
 exports `withSetupSecretEgress(options, run)` alongside `withConfiguredModelEgress`.

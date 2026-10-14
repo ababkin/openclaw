@@ -8,8 +8,9 @@ export function buildPluginSdkDeprecationNotices(pluginId: string): DeprecatedSd
   if (apis.length === 0) {
     return [];
   }
-  const dates = new Set(apis.map((api) => api.removeAfter));
-  const removalDate = dates.size === 1 ? apis[0].removeAfter : undefined;
+  const removalDate = apis
+    .flatMap((api) => (api.removeAfter ? [api.removeAfter] : []))
+    .toSorted()[0];
   const formattedDate = removalDate
     ? new Date(`${removalDate}T00:00:00Z`).toLocaleDateString("en-US", {
         month: "short",

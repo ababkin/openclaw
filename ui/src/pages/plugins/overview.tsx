@@ -6,17 +6,20 @@ import {
 } from "../../../../packages/gateway-protocol/src/plugin-ui-capabilities.ts";
 import { Icon } from "../../components/solid/icon.tsx";
 import { askBrandLabel } from "../../components/theme-brand-label.ts";
+import { registerPluginManagementEnglish } from "../../i18n/locales/en-plugin-management.ts";
 import { formatDateMs } from "../../lib/format.ts";
 import type {
   PluginCatalogItem,
   PluginDiscoveryDetailResult,
   PluginsInspectResult,
 } from "../../lib/plugins/index.ts";
-import { t } from "../../lib/reactive/i18n.ts";
+import { registerEnglishCatalog, t } from "../../lib/reactive/i18n.ts";
 import { formatCompactCount } from "./catalog-results.tsx";
 import { renderPluginAuthor, renderPluginOfficialBadge } from "./plugin-card.tsx";
 import { renderPluginRowMessage } from "./plugin-row-message.tsx";
 import { renderPluginSecurityAudit } from "./security-audit.tsx";
+
+registerEnglishCatalog(registerPluginManagementEnglish);
 
 export function renderPluginCompatibilityNotices(
   notices: PluginCatalogItem["compatibilityNotices"],
@@ -27,7 +30,18 @@ export function renderPluginCompatibilityNotices(
       {(notice) =>
         renderPluginRowMessage({
           kind: "info",
-          text: notice.message,
+          get text() {
+            return notice.removalDate
+              ? t("pluginsPage.compatibilityDeprecatedDated", {
+                  date: formatDateMs(Date.parse(`${notice.removalDate}T00:00:00Z`), {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                    timeZone: "UTC",
+                  }),
+                })
+              : t("pluginsPage.compatibilityDeprecatedUndated");
+          },
           link: notice.migrationGuideUrl
             ? { href: notice.migrationGuideUrl, text: t("pluginsPage.compatibilityDetails") }
             : undefined,
