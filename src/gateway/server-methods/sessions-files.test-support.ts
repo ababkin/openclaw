@@ -1,13 +1,22 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { ServerResponse } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { expect, vi } from "vitest";
-import type { GatewayRequestHandlerOptions, GatewayRequestHandlers, RespondFn } from "./types.js";
+import { handleArtifactDownloadHttpRequest } from "../artifact-downloads.js";
+import { createGatewayRequest } from "../hooks-test-helpers.js";
+import type {
+  GatewayClient,
+  GatewayRequestHandlerOptions,
+  GatewayRequestHandlers,
+  RespondFn,
+} from "./types.js";
 
 type SessionFilesMethod =
   | "sessions.files.list"
   | "sessions.files.get"
+  | "sessions.files.download"
   | "sessions.files.assets"
   | "sessions.files.set"
   | "sessions.files.reveal";
@@ -59,6 +68,37 @@ export function createSessionFilesHandlerInvoker(handlers: GatewayRequestHandler
     });
     return responder.calls;
   };
+}
+
+export function createSessionFileDownloadClient() {
+  const controller = new AbortController();
+  const client: GatewayClient = {
+    connId: "session-file-reader",
+    connectionSignal: controller.signal,
+    connect: {
+      minProtocol: 1,
+      maxProtocol: 1,
+      scopes: ["operator.admin"],
+      client: { id: "test", version: "test", platform: "test", mode: "test" },
+    },
+  };
+  return { client, [Symbol.dispose]: () => controller.abort() };
+}
+
+export async function fetchSessionFileDownload(
+  client: GatewayClient,
+  url: string,
+  method = "GET",
+  headers?: Record<string, string>,
+) {
+  const request = createGatewayRequest({ path: url, method, headers });
+  const response = new ServerResponse(request);
+  const end = vi.spyOn(response, "end").mockReturnValue(response);
+  await handleArtifactDownloadHttpRequest(request, response, {
+    clients: new Set([client]),
+    basePath: "",
+  });
+  return { response, body: end.mock.calls[0]?.[0] };
 }
 
 export function expectOkPayload(calls: ResponderCall[]): Record<string, any> {

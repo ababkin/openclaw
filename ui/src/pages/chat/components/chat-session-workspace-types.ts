@@ -19,6 +19,12 @@ export type SessionWorkspaceProps = {
   loading: boolean;
   error: string | null;
   activeId: string | null;
+  connectionEpoch?: number;
+  onDownloadFile?: (
+    path: string,
+    origin: "session" | "workspace",
+    signal: AbortSignal,
+  ) => Promise<Blob | null>;
   onBrowsePath: (path: string) => void;
   onOpenFile: (path: string, origin: "session" | "workspace") => void;
   onSearch: (search: string) => void;

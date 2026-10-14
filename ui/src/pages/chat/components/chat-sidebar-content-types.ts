@@ -128,6 +128,7 @@ export type FileSidebarContent = {
   path: string;
   name: string;
   content: string;
+  download?: (signal: AbortSignal) => Promise<Blob | null>;
   sessionFileSource?: SessionFileSource;
   /** Stable per-session identity used to retain an unsaved in-memory draft. */
   draftKey?: string;

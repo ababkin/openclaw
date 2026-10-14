@@ -9,13 +9,18 @@ import {
   setRuntimeConfigSnapshot,
 } from "../../config/runtime-snapshot.js";
 import { upsertSessionEntryCore } from "../../config/sessions/session-accessor.js";
+import { replaceSessionEntry } from "../../config/sessions/session-accessor.sqlite-entry.js";
+import { memorySessionActorOwners } from "../../config/sessions/session-actor-memory-owner.js";
 import type { withSessionTranscriptDeltaReader } from "../../config/sessions/session-transcript-delta-read.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { NodeWorkerWorkspaceRuntime } from "../../node-host/node-worker-workspace.js";
 import { runExclusiveSessionLifecycleMutation } from "../../sessions/session-lifecycle-admission.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { closeOpenClawAgentDatabasesAsync } from "../../state/openclaw-agent-db.js";
-import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
+import {
+  resolveIncognitoOpenClawAgentSqlitePath,
+  resolveOpenClawAgentSqlitePath,
+} from "../../state/openclaw-agent-db.paths.js";
 import {
   closeOpenClawStateDatabaseByPathAsync,
   openOpenClawStateDatabase,
@@ -60,6 +65,8 @@ import { loadSessionDiff } from "./sessions-diff.js";
 import { sessionsFilesHandlers } from "./sessions-files.js";
 import {
   createSessionFilesHandlerInvoker,
+  createSessionFileDownloadClient,
+  fetchSessionFileDownload,
   createWorkspaceFixture,
   expectError,
   expectOkPayload,
@@ -131,7 +138,7 @@ vi.mock("../../config/sessions/session-transcript-delta-read.js", () => ({
 }));
 
 const invoke = createSessionFilesHandlerInvoker(sessionsFilesHandlers);
-const sessionKey = "agent:main:repository";
+let sessionKey = "agent:main:repository";
 const gatewayDeviceId = "repository-gateway";
 const identity = {
   gatewayNamespace: nodeWorkerGatewayNamespace(gatewayDeviceId),
@@ -200,6 +207,7 @@ function requestContext() {
 }
 
 beforeEach(async () => {
+  sessionKey = "agent:main:repository";
   vi.clearAllMocks();
   gatewayRoot = createWorkspaceFixture("repository-files-gateway-");
   vi.stubEnv("OPENCLAW_STATE_DIR", gatewayRoot);
@@ -490,6 +498,80 @@ it("reports failed editor checkpoint capture and retains the durable recovery ow
   ]);
 });
 
+it("keeps incognito repository downloads alive after their RPC planning borrow ends", async () => {
+  using connection = createSessionFileDownloadClient();
+  const baseCommit = source.baseCommit!;
+  const baseManifestHash = source.baseManifestHash!;
+  sessionKey = "agent:main:dashboard:incognito-repository-download";
+  source = await store.create({
+    agentId: "main",
+    sessionKey,
+    url: "https://example.test/private.git",
+    assertCurrent() {},
+  });
+  source = await store.bindBase({
+    workspaceId: source.workspaceId,
+    expectedRevision: source.revision,
+    baseCommit,
+    baseManifestHash,
+    assertCurrent() {},
+  });
+  const storePath = resolveIncognitoOpenClawAgentSqlitePath({ agentId: "main" });
+  onTestFinished(() =>
+    memorySessionActorOwners.closeDatabase({ agentId: "main", path: storePath }),
+  );
+  await replaceSessionEntry(
+    { sessionKey, storePath },
+    {
+      sessionId,
+      updatedAt: 1,
+      incognito: true,
+      repositoryWorkspaceId: source.workspaceId,
+      lifecycleRevision,
+    },
+  );
+  const download = expectOkPayload(
+    await invoke("sessions.files.download", { sessionKey, path: "README" }, context, connection),
+  );
+  const fetched = await fetchSessionFileDownload(connection.client, download.url);
+  expect(fetched.response.statusCode).toBe(200);
+  expect(Buffer.from(fetched.body as Uint8Array).toString()).toBe("untouched source\n");
+  memorySessionActorOwners.closeDatabase({ agentId: "main", path: storePath });
+  expect(
+    (await fetchSessionFileDownload(connection.client, download.url)).response.statusCode,
+  ).toBe(404);
+});
+
+it("downloads original live repository bytes in bounded windows and rejects stale placement", async () => {
+  using connection = createSessionFileDownloadClient();
+  const bytes = Buffer.alloc(700_003, 0xff);
+  fs.writeFileSync(path.join(workspace, "binary.zip"), bytes);
+  const download = expectOkPayload(
+    await invoke(
+      "sessions.files.download",
+      { sessionKey, path: "binary.zip" },
+      context,
+      connection,
+    ),
+  );
+  expect(download.filename).toBe("binary.zip");
+  const fetched = await fetchSessionFileDownload(connection.client, download.url);
+  expect(fetched.response.statusCode).toBe(200);
+  expect(Buffer.from(fetched.body as Uint8Array)).toEqual(bytes);
+  for (const filePath of ["../outside", "/etc/passwd"]) {
+    expectError(
+      await invoke("sessions.files.download", { sessionKey, path: filePath }, context, connection),
+    );
+  }
+  onResult = () => {
+    generation++;
+  };
+  expect(
+    (await fetchSessionFileDownload(connection.client, download.url)).response.statusCode,
+  ).toBe(404);
+  expect(mocks.workspace).not.toHaveBeenCalled();
+});
+
 it("browses, previews, edits and diffs only the live repository without a Gateway checkout", async () => {
   const list = expectOkPayload(await invoke("sessions.files.list", { sessionKey }, context));
   expect(list.browser.entries.map((entry: { path: string }) => entry.path)).toContain("README");
@@ -639,6 +721,31 @@ it("keeps stopped inspection limited to verified changed artifacts", async () =>
   expect(retained.file.hash).toBeUndefined();
   expect(retained.root).toBeUndefined();
   const blobsRead = () => hostReads.mock.calls.filter(([, args]) => args[1] === "--batch").length;
+  using connection = createSessionFileDownloadClient();
+  const download = expectOkPayload(
+    await invoke(
+      "sessions.files.download",
+      { sessionKey, path: "oversized.txt" },
+      context,
+      connection,
+    ),
+  );
+  const fetched = await fetchSessionFileDownload(connection.client, download.url);
+  expect(fetched.response.statusCode).toBe(200);
+  expect(Buffer.from(fetched.body as Uint8Array)).toEqual(
+    Buffer.alloc(WORKSPACE_PREVIEW_MAX_BYTES + 1, 97),
+  );
+  expectError(
+    await invoke("sessions.files.download", { sessionKey, path: "README" }, context, connection),
+  );
+  expectError(
+    await invoke(
+      "sessions.files.download",
+      { sessionKey, path: "../changed.txt" },
+      context,
+      connection,
+    ),
+  );
   const beforeOversized = blobsRead();
   expect(beforeOversized).toBeGreaterThan(0);
   const oversized = expectError(

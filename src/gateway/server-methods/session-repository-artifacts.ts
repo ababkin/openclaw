@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import type {
   SessionFileBrowserEntry,
@@ -6,6 +7,7 @@ import type {
   SessionsDiffResult,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { readSessionRepositoryArtifacts } from "../worker-environments/session-repository-checkpoints.js";
+import { WORKSPACE_DOWNLOAD_MAX_BYTES } from "../workspace-file-limits.js";
 import type { resolveRepositoryWorkspaceAccess } from "./session-repository-workspace-access.js";
 import { populateSessionFilePreview } from "./workspace-files.js";
 import { normalizeRelativePath, sortWorkspaceEntries } from "./workspace-fs.js";
@@ -15,7 +17,7 @@ type StoredRepository = Extract<
   { kind: "stored" }
 >;
 
-async function readArtifacts(access: StoredRepository, previewPath?: string) {
+async function readArtifacts(access: StoredRepository, previewPath?: string, download = false) {
   access.assertCurrent();
   if (!access.repository.checkpointRef) {
     return undefined;
@@ -24,7 +26,7 @@ async function readArtifacts(access: StoredRepository, previewPath?: string) {
     store: access.store,
     workspaceId: access.repository.workspaceId,
     checkpointRef: access.repository.checkpointRef,
-    previewPath,
+    ...(download ? { downloadPath: previewPath } : { previewPath }),
     assertCurrent: access.assertCurrent,
   });
   access.assertCurrent();
@@ -131,6 +133,32 @@ export async function getRepositoryArtifact(
   }
   access.assertCurrent();
   return { file };
+}
+
+export async function downloadRepositoryArtifact(access: StoredRepository, requestedPath: string) {
+  const selected = resolveRepositoryArtifactPath(requestedPath);
+  if (selected === undefined) {
+    return { status: "missing" as const };
+  }
+  const snapshot = await readArtifacts(access, selected, true);
+  const entry = snapshot?.changedEntries.find((candidate) => candidate.path === selected);
+  if (!snapshot || entry?.type !== "file") {
+    return { status: "missing" as const };
+  }
+  if (entry.size > WORKSPACE_DOWNLOAD_MAX_BYTES) {
+    return { status: "too-large" as const, size: entry.size };
+  }
+  if (!snapshot.preview) {
+    return { status: "missing" as const };
+  }
+  access.assertCurrent();
+  const bytes = new Uint8Array(snapshot.preview);
+  return {
+    status: "ok" as const,
+    filename: path.posix.basename(entry.path),
+    bytes,
+    digest: createHash("sha256").update(bytes).digest("hex"),
+  };
 }
 
 export async function loadRepositoryArtifactDiff(

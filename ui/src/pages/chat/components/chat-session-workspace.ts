@@ -6,6 +6,7 @@ import {
 } from "../../../../../src/shared/markdown-code.js";
 import { downloadArtifact, isHttpArtifactDownloadUrl } from "../../../api/artifact-download.ts";
 import { GatewayRequestError } from "../../../api/gateway.ts";
+import { downloadSessionFile } from "../../../api/session-file-download.ts";
 import type { ArtifactDownloadResult, SessionWorkspaceGetResult } from "../../../api/types.ts";
 import { hasOperatorAdminAccess } from "../../../app/operator-access.ts";
 import type { MarkdownFileLinkTarget } from "../../../components/markdown-file-links.ts";
@@ -307,6 +308,16 @@ function openFile(
         path: filePath,
         name,
         content: text,
+        download: (signal: AbortSignal) =>
+          downloadSessionFile(
+            state,
+            {
+              sessionKey: result.sessionKey,
+              agentId,
+              path: requestPath,
+            },
+            signal,
+          ),
         sessionFileSource: {
           sessionKey: result.sessionKey,
           agentId,
@@ -492,6 +503,18 @@ export function createSessionWorkspaceProps(
     filter: workspace.filter,
     browserPath: workspace.browserPath,
     browserSearch: workspace.browserSearch,
+    connectionEpoch: state.connectionEpoch,
+    onDownloadFile: (path, origin, signal) =>
+      downloadSessionFile(
+        state,
+        {
+          sessionKey: workspace.sessionKey,
+          agentId: workspace.agentId,
+          path:
+            origin === "workspace" ? workspaceBrowserFilePath(workspace.list?.root, path) : path,
+        },
+        signal,
+      ),
     onSetFilter: (filter) => {
       workspace.filter = filter;
       state.requestUpdate?.();

@@ -241,6 +241,17 @@ pending wizard or approval before opening the creation choices.
 If team creation stops partway through, the custodian reports the retained
 agents so you can inspect them before creating the missing members.
 
+## Download files
+
+In the **Files** panel, hover over a file or focus its row to reveal **Download file**
+next to Preview and Copy path. The same action is available in the file preview
+toolbar. It saves the original file through your browser without opening another
+page; unsaved editor changes are not included. Downloads support files up to 8 MiB,
+independently of the inline-preview limit. Folders are not downloadable.
+
+Downloads use the session's existing file-read access, including managed repository
+workspaces. A failed download shows an error and can be retried from the same button.
+
 ## Take a photo in chat
 
 Choose **Add attachment → Take photo** in chat or New Session to open a camera
