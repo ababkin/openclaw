@@ -1,9 +1,9 @@
-import { createMemo, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, For, Show, useContext } from "solid-js";
 import { observeScrollState } from "../../../components/scroll-state-observer.ts";
 import "../../../components/tooltip.ts";
 import type { BrowserAnnotationAttachment, ChatAttachment } from "../../../lib/chat/chat-types.ts";
 import { t } from "../../../lib/reactive/i18n.ts";
-import { LitContent } from "../../../lit/solid-content.tsx";
+import { LitContent, SolidContentPresentation } from "../../../lit/solid-content.tsx";
 import { getChatAttachmentPreviewUrl } from "../attachment-payload-store.ts";
 import type { ChatAttachmentControlsProps } from "./chat-attachment-controls.types.ts";
 import { removeDraftAttachment } from "./chat-attachment-draft.ts";
@@ -253,21 +253,28 @@ function AttachmentPreviewStrip(props: {
   entries: readonly AttachmentPreviewEntry[];
   controls: ChatAttachmentControlsProps;
 }) {
-  let observation: ReturnType<typeof observeScrollState> | undefined;
-  onCleanup(() => observation?.disconnect());
+  const presented = useContext(SolidContentPresentation);
+  let host!: HTMLDivElement;
+  createEffect(presented, (active) => {
+    if (!active) {
+      return undefined;
+    }
+    const observation = observeScrollState(
+      host,
+      (state) => {
+        for (const key of ["scrollable", "atStart", "atEnd"] as const) {
+          host.dataset[key] = String(state[key]);
+        }
+      },
+      true,
+    );
+    return () => observation.disconnect();
+  });
   return (
     <div
       class="chat-attachments-preview"
       ref={(element) => {
-        observation = observeScrollState(
-          element,
-          (state) => {
-            for (const key of ["scrollable", "atStart", "atEnd"] as const) {
-              element.dataset[key] = String(state[key]);
-            }
-          },
-          true,
-        );
+        host = element;
       }}
     >
       <LitContent value={renderChatSelectionAnnotations(props.controls)} />
