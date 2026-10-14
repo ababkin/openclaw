@@ -159,7 +159,7 @@ export function inspectScopedMigrationTables(
           rowid,
           objects: catalog.filter(
             (entry) =>
-              entry.tbl_name === object.name &&
+              entry.tbl_name.toLowerCase() === object.name.toLowerCase() &&
               entry.sql &&
               (entry.type === "index" || entry.type === "trigger"),
           ),

@@ -11,7 +11,7 @@ function captureUndeclaredTables(
   const objects = database
     .prepare(
       `SELECT type, name, tbl_name, sql FROM main.sqlite_schema
-       WHERE type IN ('table', 'index', 'trigger') ORDER BY type, name`,
+       WHERE type IN ('table', 'index', 'trigger', 'view') ORDER BY type, name`,
     )
     .all();
   const tables = database
@@ -22,6 +22,17 @@ function captureUndeclaredTables(
     )
     .all();
   const snapshots = new Map<string, TableSnapshot>();
+  // Table scopes cannot restore views, including views over declared tables.
+  for (const object of objects.filter((entry) => entry.type === "view")) {
+    snapshots.set(String(object.name), {
+      schema: JSON.stringify(
+        objects.filter(
+          (entry) => String(entry.tbl_name).toLowerCase() === String(object.name).toLowerCase(),
+        ),
+      ),
+      content: "",
+    });
+  }
   for (const table of tables) {
     const name = String(table.name);
     if (declaredTables.has(name)) {
@@ -81,7 +92,9 @@ function captureUndeclaredTables(
       hash.update("\n");
     }
     snapshots.set(name, {
-      schema: JSON.stringify(objects.filter((object) => object.tbl_name === name)),
+      schema: JSON.stringify(
+        objects.filter((object) => String(object.tbl_name).toLowerCase() === name.toLowerCase()),
+      ),
       content: hash.digest("hex"),
     });
   }
