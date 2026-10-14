@@ -13,6 +13,7 @@ import type {
 import { managedServiceStateUpdateScript } from "./update-managed-service-handoff-state.test-support.js";
 
 const testNodeExecPath = resolveTestNodeExecPath();
+const recoveryReadyMarker = "OPENCLAW_TEST_RECOVERY_DESCENDANT_READY";
 
 /** A LaunchAgent gateway's own environment; the handoff keeps only the label for its children. */
 export const LAUNCHD_GATEWAY_IDENTITY_ENV = {
@@ -127,6 +128,7 @@ export function createManagedServiceCommandFixture(params: {
               `const { spawn } = require("node:child_process");`,
               `const recoveryDescendantPid = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }).pid;`,
               `${managedServiceStateUpdateScript(statePath, "state.recoveryDescendantPid = recoveryDescendantPid")};`,
+              `console.log(${JSON.stringify(recoveryReadyMarker)});`,
               `setInterval(() => {}, 1000);`,
             ]
           : options?.recoveryExitCode === undefined || options.recoveryExitCode === 0
@@ -198,6 +200,75 @@ export function createManagedServiceCommandFixture(params: {
           "--non-interactive",
         ],
   };
+}
+
+export async function prepareManagedServiceRecoveryClockPreload(
+  params: { root: string; scriptPath: string; statePath: string; timeoutMs: number },
+  commandArgv: string[],
+  env: NodeJS.ProcessEnv,
+): Promise<NodeJS.ProcessEnv> {
+  const preloadPath = path.join(params.root, "recovery-clock-preload.cjs");
+  const deadlinePath = path.join(params.root, "recovery-deadline.json");
+  // Expire the real helper callback only after its native descendant exists.
+  // Other commands keep native clocks; the watchdog also uses the real cleanup callback.
+  const source = `if (process.argv[1] === ${JSON.stringify(params.scriptPath)}) {
+    const fs = require("node:fs");
+    const children = require("node:child_process");
+    const spawn = children.spawn;
+    const setTimeout = global.setTimeout;
+    const clearTimeout = global.clearTimeout;
+    let recovery;
+    let captured = false;
+    children.spawn = (command, args, options) => {
+      const child = spawn(command, args, options);
+      if (command === ${JSON.stringify(commandArgv[0])} &&
+          (args.at(-1) === ${JSON.stringify(JSON.stringify(commandArgv))} ||
+           JSON.stringify(args.slice(-${commandArgv.length - 1})) === ${JSON.stringify(JSON.stringify(commandArgv.slice(1)))})) {
+        recovery = child;
+        child.once("close", () => { recovery = undefined; });
+      }
+      return child;
+    };
+    global.setTimeout = (callback, delay, ...args) => {
+      if (!recovery || delay !== ${params.timeoutMs}) return setTimeout(callback, delay, ...args);
+      if (captured) throw new Error("duplicate recovery deadline");
+      captured = true;
+      const child = recovery;
+      const deadline = { requestedMs: delay };
+      const save = () => fs.writeFileSync(${JSON.stringify(deadlinePath)}, JSON.stringify(deadline));
+      let buffered = "";
+      let expired = false;
+      const expire = () => {
+        if (expired) return;
+        expired = true;
+        clearTimeout(timer);
+        child.stdout.removeListener("data", onData);
+        try { save(); } finally { callback.apply(timer, args); }
+      };
+      const onData = (chunk) => {
+        buffered = (buffered + chunk.toString()).slice(-1024);
+        if (!buffered.includes(${JSON.stringify(`${recoveryReadyMarker}\n`)})) return;
+        try {
+          const pid = JSON.parse(fs.readFileSync(${JSON.stringify(params.statePath)}, "utf8")).recoveryDescendantPid;
+          if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("missing recovery descendant PID");
+          process.kill(pid, 0);
+          deadline.descendantPid = pid;
+        } catch {
+          // Still join native cleanup; the readiness assertion reports this fixture failure.
+        }
+        expire();
+      };
+      const timer = setTimeout(expire, 30_000);
+      child.stdout.on("data", onData);
+      child.once("close", () => {
+        clearTimeout(timer);
+        child.stdout.removeListener("data", onData);
+      });
+      return timer;
+    };
+  }`;
+  await fs.writeFile(preloadPath, source);
+  return { ...env, NODE_OPTIONS: `${env.NODE_OPTIONS ?? ""} --require ${preloadPath}`.trim() };
 }
 
 export async function waitForHandoffResponse(
@@ -340,19 +411,35 @@ export function registerManagedRecoveryCommandTests(
   );
 
   itUnix("bounds a stalled recovery command and terminates its descendants", async () => {
-    const { state, sentinel } = await runManagedServiceManagerBoundary("systemd", {
-      recoveryHang: true,
-      updaterNotification: "published",
-      updaterResult: {
-        status: "error",
-        mode: "npm",
-        reason: "managed-service-handoff-failed",
-        recovery: { serviceRestartSafe: true, version: "1.0.0" },
+    const recoveryTimeoutMs = 60_000;
+    const { state, sentinel, log, recoveryDeadline } = await runManagedServiceManagerBoundary(
+      "systemd",
+      {
+        recoveryHang: true,
+        recoveryTimeoutMs,
+        updaterNotification: "published",
+        updaterResult: {
+          status: "error",
+          mode: "npm",
+          reason: "managed-service-handoff-failed",
+          recovery: { serviceRestartSafe: true, version: "1.0.0" },
+        },
       },
-    });
+    );
     expect(state.guardedRestart).toEqual(["gateway", "restart", "--preserve-definition", "--json"]);
     expect(state.restored).toBeUndefined();
     expect(typeof state.recoveryDescendantPid).toBe("number");
+    expect(recoveryDeadline).toEqual({
+      requestedMs: recoveryTimeoutMs,
+      descendantPid: state.recoveryDescendantPid,
+    });
+    expect(log).toContain("verified recovery command exceeded its update timeout");
+    expect(log.indexOf("managed update recovery command exited")).toBeGreaterThan(
+      log.indexOf("verified recovery command exceeded its update timeout"),
+    );
+    expect(log.indexOf("managed update helper completed")).toBeGreaterThan(
+      log.indexOf("managed update recovery command exited"),
+    );
     await expect.poll(() => isPidAlive(Number(state.recoveryDescendantPid))).toBe(false);
     expect(sentinel).toMatchObject({
       payload: {
