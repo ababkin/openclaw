@@ -262,7 +262,7 @@ jobs:
               fedora:44 \
               bash -s <<'CONTAINER'
           set -euo pipefail
-          dnf install -y -q sudo shadow-utils
+          rpm -q sudo shadow-utils >/dev/null 2>&1 || dnf install -y -q sudo shadow-utils
           useradd --create-home --shell /bin/bash installer
           printf '%s\n' 'installer ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/installer
           chmod 0440 /etc/sudoers.d/installer
