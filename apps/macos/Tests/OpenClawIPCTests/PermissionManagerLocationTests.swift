@@ -10,7 +10,8 @@ struct PermissionManagerLocationTests {
         let manager = FixtureLocationManager(status: status)
         var openedSettings = 0
         var enablementRequests = 0
-        let requester = LocationPermissionRequester(manager: manager, openSettings: { openedSettings += 1 })
+        let requester = LocationPermissionRequester(
+            manager: manager, locationServicesEnabled: { true }, openSettings: { openedSettings += 1 })
         await PermissionManager.resolve([.location], location: requester, isCurrent: { true }) { _ in
             enablementRequests += 1
             return false
@@ -20,12 +21,30 @@ struct PermissionManagerLocationTests {
         #expect(manager.authorizationRequests == 0)
     }
 
+    @Test
+    func `disabled Location Services resolves Settings without enablement consent`() async {
+        let manager = FixtureLocationManager(status: .authorizedAlways)
+        var openedSettings = 0
+        var enablementRequests = 0
+        let requester = LocationPermissionRequester(
+            manager: manager, locationServicesEnabled: { false }, openSettings: { openedSettings += 1 })
+        await PermissionManager.resolve([.location], location: requester, isCurrent: { true }) { _ in
+            enablementRequests += 1
+            return false
+        }
+        #expect(openedSettings == 1)
+        #expect(enablementRequests == 0)
+        #expect(manager.authorizationRequests == 0)
+        #expect(requester.authorizationStatus == .denied)
+    }
+
     @Test(arguments: [CLAuthorizationStatus.notDetermined, .authorizedAlways])
     func `promptable and granted Location still require enablement consent`(_ status: CLAuthorizationStatus) async {
         let manager = FixtureLocationManager(status: status)
         var openedSettings = 0
         var enablementRequests = 0
-        let requester = LocationPermissionRequester(manager: manager, openSettings: { openedSettings += 1 })
+        let requester = LocationPermissionRequester(
+            manager: manager, locationServicesEnabled: { true }, openSettings: { openedSettings += 1 })
         await PermissionManager.resolve([.location], location: requester, isCurrent: { true }) { _ in
             enablementRequests += 1
             return false
@@ -39,7 +58,8 @@ struct PermissionManagerLocationTests {
     func `enabling Location opens Settings when macOS cannot prompt again`(_ status: CLAuthorizationStatus) async {
         let manager = FixtureLocationManager(status: status)
         var openedSettings = 0
-        let requester = LocationPermissionRequester(manager: manager, openSettings: { openedSettings += 1 })
+        let requester = LocationPermissionRequester(
+            manager: manager, locationServicesEnabled: { true }, openSettings: { openedSettings += 1 })
         let result = await requester.request(always: false)
         #expect(result == status)
         #expect(openedSettings == 1)
@@ -50,7 +70,8 @@ struct PermissionManagerLocationTests {
     func `enabling Location requests only an undetermined grant`(_ status: CLAuthorizationStatus) async {
         let manager = FixtureLocationManager(status: status)
         var openedSettings = 0
-        let requester = LocationPermissionRequester(manager: manager, openSettings: { openedSettings += 1 })
+        let requester = LocationPermissionRequester(
+            manager: manager, locationServicesEnabled: { true }, openSettings: { openedSettings += 1 })
         #expect(await requester.request(always: false) == .authorizedAlways)
         #expect(manager.authorizationRequests == (status == .notDetermined ? 1 : 0))
         #expect(openedSettings == 0)
