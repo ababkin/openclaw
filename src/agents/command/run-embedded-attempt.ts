@@ -141,9 +141,13 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
     lifecycleFinishing: false,
     lifecycleEnded: false,
   };
+  let executionStarted = false;
   const attemptLifecycleCallbacks = createAgentAttemptLifecycleCallbacks(
     attemptLifecycleState,
-    params.preparedRunAdmission.onRuntimeTurnStarted,
+    () => {
+      executionStarted = true;
+      return params.preparedRunAdmission.onRuntimeTurnStarted();
+    },
   );
   const transcriptMedia = params.opts.transcriptMedia ?? [];
   const hasTranscriptMedia = transcriptMedia.length > 0;
@@ -668,10 +672,10 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
         err,
         params.opts.abortSignal,
       );
-      lifecycle.emitBasicError(
-        err instanceof Error ? err : new Error("Agent run failed"),
-        errorLifecycleFields,
-      );
+      lifecycle.emitBasicError(err instanceof Error ? err : new Error("Agent run failed"), {
+        ...errorLifecycleFields,
+        ...(!executionStarted ? { executionStarted: false, providerStarted: false } : {}),
+      });
       await fallbackTrajectoryRecorder?.flush();
       await deferredLifecycle.complete();
       throw err;
