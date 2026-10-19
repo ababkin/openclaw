@@ -12,18 +12,18 @@ OpenAI-compatible endpoint. Providers post standing offers. For each request, th
 eligible offers by estimated charge, fixes a price cap before the first token, and charges for the
 tokens actually used. OpenClaw talks to it over the `openai-completions` transport.
 
-| Property    | Value                                                                     |
-| ----------- | ------------------------------------------------------------------------- |
-| Provider id | `liquid` (custom; configure under `models.providers.liquid`)              |
-| Plugin      | none; not a bundled OpenClaw provider plugin                              |
-| Auth        | Liquid Inference buyer key with the `spend` scope, sent as a bearer token |
-| API         | `openai-completions`                                                      |
-| Base URL    | `https://router.inference.ai.exchange/v1`                                 |
+| Property    | Value                                                                                                                            |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Provider id | `liquid`                                                                                                                         |
+| Plugin      | [`@architect-xyz/openclaw-liquid-inference`](https://github.com/architect-xyz/openclaw-liquid-inference), installed from ClawHub |
+| Auth        | Liquid Inference buyer key with the `spend` scope, sent as a bearer token                                                        |
+| API         | `openai-completions`                                                                                                             |
+| Base URL    | `https://router.inference.ai.exchange/v1`                                                                                        |
 
 <Note>
-  Liquid Inference is a custom OpenAI-compatible provider, not a bundled OpenClaw provider plugin.
-  `openclaw onboard` offers no Liquid Inference auth choice, so you add the
-  `models.providers.liquid` entry yourself.
+  Liquid Inference maintains the plugin; it is not bundled with OpenClaw. After the install,
+  `openclaw onboard` offers a Liquid Inference API key choice. The provider also works as a custom
+  `models.providers.liquid` entry without the plugin; see [Configuration](#configuration).
 </Note>
 
 ## Quick start
@@ -38,13 +38,14 @@ tokens actually used. OpenClaw talks to it over the `openai-completions` transpo
     ```
 
   </Step>
-  <Step title="Add the provider">
+  <Step title="Install the plugin">
     ```bash
-    openclaw config set models.providers.liquid '{"baseUrl":"https://router.inference.ai.exchange/v1","api":"openai-completions","headers":{"X-Title":"OpenClaw","x-liquid-cap-usd":"1.00"},"models":[{"id":"liquid.auto","name":"liquid.auto","input":["text"],"contextWindow":128000,"maxTokens":8192}]}' --strict-json --merge
+    openclaw plugins install clawhub:@architect-xyz/openclaw-liquid-inference
     ```
 
-    `--merge` keeps your other providers. See [Configuration](#configuration) for the same entry in
-    `openclaw.json`.
+    The plugin adds the provider `liquid` with the base URL, the `X-Title` header, a cap of $1 per
+    request and the model `liquid.auto`. It keeps your other providers and fallbacks, and it does not
+    change your primary model.
 
   </Step>
   <Step title="Save the key">
@@ -70,6 +71,36 @@ tokens actually used. OpenClaw talks to it over the `openai-completions` transpo
 
 ## Configuration
 
+The plugin reads its settings from `plugins.entries.liquid.config`. Every setting is optional; this
+block shows the defaults:
+
+```json5
+{
+  plugins: {
+    entries: {
+      liquid: {
+        config: {
+          capUsd: 1, // the most that one request may cost, in USD
+          baseUrl: "https://router.inference.ai.exchange/v1",
+          headers: {}, // extra headers on every request
+        },
+      },
+    },
+  },
+  agents: {
+    defaults: {
+      model: { primary: "liquid/liquid.auto" },
+    },
+  },
+}
+```
+
+The key is not in this block: [Save the key](#quick-start) stores it in the credential store.
+
+### Without the plugin
+
+The same provider as a custom entry, added with `openclaw config set models.providers.liquid '<json>' --strict-json --merge`:
+
 ```json5
 {
   models: {
@@ -93,22 +124,16 @@ tokens actually used. OpenClaw talks to it over the `openai-completions` transpo
       },
     },
   },
-  agents: {
-    defaults: {
-      model: { primary: "liquid/liquid.auto" },
-    },
-  },
 }
 ```
 
 The `/v1` suffix is required because OpenClaw hands the URL to the OpenAI client, which appends
-`chat/completions`. The key is not in this block: [Save the key](#quick-start) stores it in the
-credential store. To keep it in the config instead, set `apiKey: "${LIQUID_API_KEY}"` on the
-provider.
+`chat/completions`. To keep the key in the config instead of the credential store, set
+`apiKey: "${LIQUID_API_KEY}"` on the provider.
 
 ### Request headers
 
-`headers` go with every model request to this provider, including compaction requests.
+These headers go with every model request to this provider, including compaction requests.
 
 | Header             | Purpose                                                                                                 |
 | ------------------ | ------------------------------------------------------------------------------------------------------- |
@@ -119,13 +144,19 @@ A task makes several requests, so the request cap does not limit the total charg
 spend limit on the key to limit total spend. To change the cap:
 
 ```bash
+openclaw config set plugins.entries.liquid.config.capUsd 0.25 --strict-json
+```
+
+With the custom entry, set the header instead:
+
+```bash
 openclaw config set models.providers.liquid.headers.x-liquid-cap-usd '"0.25"' --strict-json
 ```
 
 ### Context window
 
-OpenClaw compacts a session before it outgrows `contextWindow`. Set it to the smallest input window
-of the model you select, or leave `128000` for `liquid.auto`.
+OpenClaw compacts a session before it outgrows `contextWindow`. The plugin sets `128000` for every
+model. With the custom entry, set it to the smallest input window of the model you select.
 
 ## Models
 
@@ -142,9 +173,9 @@ To list the current names (no key needed):
 curl https://router.inference.ai.exchange/v1/models
 ```
 
-Add one entry to `models` for each name you want to select, then select it as
-`liquid/<name>`. The exchange resolves the name on every request, so the entries stay valid when
-offers change.
+With the plugin, select any name as `liquid/<name>`; the plugin resolves it without a config entry.
+With the custom entry, add one entry to `models` for each name you want to select. The exchange
+resolves the name on every request, so the entries stay valid when offers change.
 
 ## Refusals and fallback models
 
