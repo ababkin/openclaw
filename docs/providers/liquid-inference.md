@@ -40,11 +40,12 @@ tokens actually used. OpenClaw talks to it over the `openai-completions` transpo
   </Step>
   <Step title="Install the plugin">
     ```bash
-    openclaw plugins install clawhub:@architect-xyz/openclaw-liquid-inference
+    openclaw plugins install clawhub:@architect-xyz/openclaw-liquid-inference --accept-capabilities
     ```
 
-    The plugin adds the provider `liquid` with the base URL, the `X-Title` header, a cap of $1 per
-    request and the model `liquid.auto`. It keeps your other providers and fallbacks, and it does not
+    `--accept-capabilities` accepts what the plugin declares: a model provider. The plugin adds the
+    provider `liquid` with the base URL, the `X-Title` header, a cap of $1 per request and the model
+    `liquid.auto`. It keeps your other providers and fallbacks, and it does not
     change your primary model.
 
   </Step>
