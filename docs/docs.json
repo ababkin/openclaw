@@ -1333,6 +1333,10 @@
     {
       "source": "/plugins/webhooks",
       "destination": "/automation#background-execution-and-workflows"
+    },
+    {
+      "source": "/providers/liquid-inference",
+      "destination": "/providers/architect-inference"
     }
   ],
   "navigation": {
@@ -2341,7 +2345,7 @@
                       "providers/clawrouter",
                       "providers/cloudflare-ai-gateway",
                       "providers/kilocode",
-                      "providers/liquid-inference",
+                      "providers/architect-inference",
                       "providers/litellm",
                       "providers/neon",
                       "providers/openrouter",
